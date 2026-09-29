@@ -20,11 +20,32 @@ const (
 	modeFolders
 )
 
+// RepeatMode mengatur perilaku auto-next saat lagu selesai.
+type RepeatMode int
+
+const (
+	RepeatOff RepeatMode = iota // lagu terakhir selesai → stop
+	RepeatOne                   // lagu yang sama diulang terus
+	RepeatAll                   // queue berputar, kembali ke index 0
+)
+
+func (r RepeatMode) String() string {
+	switch r {
+	case RepeatOne:
+		return "repeat: one"
+	case RepeatAll:
+		return "repeat: all"
+	default:
+		return "repeat: off"
+	}
+}
+
 type Model struct {
 	cfg         *config.Config
 	db          *db.DB
 	player      *player.Player
 	mode        mode
+	repeat      RepeatMode
 	list        list.Model
 	browser     list.Model
 	browserPath string
@@ -41,8 +62,6 @@ type Model struct {
 
 	resumeChecked bool
 
-	// Toast: pesan sementara yang otomatis hilang setelah beberapa detik.
-	// Kalau kosong, `status` yang ditampilkan.
 	toast      string
 	toastUntil time.Time
 
@@ -72,6 +91,7 @@ func NewModel(cfg *config.Config, database *db.DB) Model {
 		db:         database,
 		player:     player.New(),
 		mode:       modeLibrary,
+		repeat:     RepeatOff,
 		list:       l,
 		browser:    b,
 		folderList: f,

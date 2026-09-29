@@ -23,6 +23,7 @@ var (
 	progressFilledStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
 	progressEmptyStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("238"))
 	progressTimeStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("250"))
+	repeatBadgeStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 )
 
 func (m Model) View() string {
@@ -42,7 +43,7 @@ func (m Model) View() string {
 	default:
 		body = m.viewLibrary()
 		help = helpStyle.Render(
-			"↑/↓ navigasi • enter play • spasi pause • n/p next/prev • a tambah folder • d kelola folder • / filter • r rescan • q keluar",
+			"↑/↓ navigasi • enter play • spasi pause • n/p next/prev • a tambah folder • d kelola folder • / filter • r rescan • q/esc keluar",
 		)
 	}
 
@@ -63,9 +64,12 @@ func (m Model) viewLibrary() string {
 }
 
 func (m Model) viewProgress() string {
+	repeatBadge := repeatBadgeStyle.Render("[" + m.repeat.String() + "]")
+
 	if m.currentTrack == nil {
 		bar := progressEmptyStyle.Render(strings.Repeat("─", m.progressWidth()))
-		return progressTimeStyle.Render("  --:-- ") + bar + progressTimeStyle.Render(" --:--  ")
+		return progressTimeStyle.Render("  --:-- ") + bar +
+			progressTimeStyle.Render(" --:--  ") + repeatBadge
 	}
 
 	pos := m.player.Position()
@@ -99,7 +103,8 @@ func (m Model) viewProgress() string {
 	return "  " +
 		progressTimeStyle.Render(posStr) + " " +
 		bar + " " +
-		progressTimeStyle.Render(durStr) + "  "
+		progressTimeStyle.Render(durStr) + "  " +
+		repeatBadge
 }
 
 func (m Model) progressWidth() int {

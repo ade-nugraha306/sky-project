@@ -13,10 +13,11 @@ const targetSampleRate = beep.SampleRate(44100)
 const resampleQuality = 4
 
 type Player struct {
-	ctrl   *beep.Ctrl
-	stream beep.StreamSeekCloser
-	format beep.Format
-	loaded bool
+	ctrl      *beep.Ctrl
+	stream    beep.StreamSeekCloser
+	resampler *beep.Resampler // nil kalau sample rate sudah sesuai target
+	format    beep.Format
+	loaded    bool
 }
 
 func New() *Player {
@@ -68,32 +69,23 @@ func (p *Player) LoadAt(path string, start time.Duration, paused bool) error {
 	}
 
 	var finalStreamer beep.Streamer = streamer
+	var resampler *beep.Resampler
 	if format.SampleRate != targetSampleRate {
-		finalStreamer = beep.Resample(
+		resampler = beep.Resample(
 			resampleQuality,
 			format.SampleRate,
 			targetSampleRate,
 			streamer,
 		)
+		finalStreamer = resampler
 	}
 
 	p.stream = streamer
+	p.resampler = resampler
 	p.format = format
-
-	// Paused di-set SEBELUM speaker.Play, jadi tidak ada
-	// beberapa milidetik audio yang bocor keluar.
 	p.ctrl = &beep.Ctrl{Streamer: finalStreamer, Paused: paused}
 	speaker.Play(p.ctrl)
 	return nil
-}
-
-func (p *Player) IsPaused() bool {
-	if p.ctrl == nil {
-		return false
-	}
-	speaker.Lock()
-	defer speaker.Unlock()
-	return p.ctrl.Paused
 }
 
 func (p *Player) TogglePause() {
@@ -105,16 +97,62 @@ func (p *Player) TogglePause() {
 	speaker.Unlock()
 }
 
+func (p *Player) IsPaused() bool {
+	if p.ctrl == nil {
+		return false
+	}
+	speaker.Lock()
+	defer speaker.Unlock()
+	return p.ctrl.Paused
+}
+
 func (p *Player) Stop() {
 	speaker.Clear()
 	if p.stream != nil {
 		p.stream.Close()
 		p.stream = nil
 	}
+	p.resampler = nil
 	p.ctrl = nil
 }
 
-// Position mengembalikan posisi playback saat ini.
+func (p *Player) Seek(delta time.Duration) {
+	if p.stream == nil || p.ctrl == nil {
+		return
+	}
+	speaker.Lock()
+	defer speaker.Unlock()
+
+	// delta dalam satuan sample dari sumber (belum resample).
+	deltaSamples := p.format.SampleRate.N(delta)
+	target := p.stream.Position() + deltaSamples
+
+	if target < 0 {
+		target = 0
+	}
+	if target >= p.stream.Len() {
+		if p.stream.Len() > 0 {
+			target = p.stream.Len() - 1
+		} else {
+			target = 0
+		}
+	}
+
+	if err := p.stream.Seek(target); err != nil {
+		return
+	}
+
+	if p.resampler != nil {
+		p.resampler = beep.Resample(
+			resampleQuality,
+			p.format.SampleRate,
+			targetSampleRate,
+			p.stream,
+		)
+		p.ctrl.Streamer = p.resampler
+	}
+}
+
 func (p *Player) Position() time.Duration {
 	if p.stream == nil {
 		return 0
@@ -123,7 +161,6 @@ func (p *Player) Position() time.Duration {
 	return p.format.SampleRate.D(pos)
 }
 
-// Duration mengembalikan total durasi lagu.
 func (p *Player) Duration() time.Duration {
 	if p.stream == nil {
 		return 0
@@ -132,7 +169,6 @@ func (p *Player) Duration() time.Duration {
 	return p.format.SampleRate.D(length)
 }
 
-// IsFinished true saat lagu sudah selesai diputar.
 func (p *Player) IsFinished() bool {
 	if p.stream == nil {
 		return false

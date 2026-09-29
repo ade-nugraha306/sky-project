@@ -203,7 +203,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tickMsg:
-		// Bersihkan toast yang sudah kedaluwarsa.
 		if m.toast != "" && time.Now().After(m.toastUntil) {
 			m.toast = ""
 		}
@@ -212,13 +211,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tickCmd()
 		}
 		if m.currentTrack != nil && m.player.IsFinished() {
-			next, cmd := m.playNext()
-			if cmd == nil {
-				m.currentTrack = nil
-				m.status = "queue selesai"
-				return m, tickCmd()
-			}
-			return next, tea.Batch(cmd, tickCmd())
+			return m.handleTrackEnd()
 		}
 		return m, tickCmd()
 	}
@@ -249,6 +242,34 @@ func (m Model) saveResume() {
 	m.cfg.Save()
 }
 
+// handleTrackEnd dipanggil saat lagu selesai secara alami (bukan
+// karena user menekan n/p). Perilakunya tergantung m.repeat.
+func (m Model) handleTrackEnd() (tea.Model, tea.Cmd) {
+	switch m.repeat {
+	case RepeatOne:
+		next, cmd := m.playAt(m.queueIndex)
+		return next, tea.Batch(cmd, tickCmd())
+
+	case RepeatAll:
+		nextIdx := m.queueIndex + 1
+		if nextIdx >= len(m.queue) {
+			nextIdx = 0
+		}
+		next, cmd := m.playAt(nextIdx)
+		return next, tea.Batch(cmd, tickCmd())
+
+	default: // RepeatOff
+		nextIdx := m.queueIndex + 1
+		if nextIdx >= len(m.queue) {
+			m.currentTrack = nil
+			m.status = "queue selesai"
+			return m, tickCmd()
+		}
+		next, cmd := m.playAt(nextIdx)
+		return next, tea.Batch(cmd, tickCmd())
+	}
+}
+
 func (m Model) updateLibrary(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.list.FilterState() == list.Filtering {
 		var cmd tea.Cmd
@@ -257,7 +278,7 @@ func (m Model) updateLibrary(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg.String() {
-	case "q", "ctrl+c":
+	case "q", "ctrl+c", "esc":
 		m.saveResume()
 		return m, tea.Quit
 
@@ -303,6 +324,24 @@ func (m Model) updateLibrary(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "p", "<":
 		prev, cmd := m.playPrev()
 		return prev, cmd
+
+	case ",", "[":
+		if m.currentTrack == nil {
+			break
+		}
+		m.player.Seek(-5 * time.Second)
+		m = m.flash("⏪ " + formatDuration(m.player.Position()))
+
+	case ".", "]":
+		if m.currentTrack == nil {
+			break
+		}
+		m.player.Seek(5 * time.Second)
+		m = m.flash("⏩ " + formatDuration(m.player.Position()))
+
+	case "m":
+		m.repeat = (m.repeat + 1) % 3
+		m = m.flash(m.repeat.String())
 
 	case " ":
 		m.player.TogglePause()
