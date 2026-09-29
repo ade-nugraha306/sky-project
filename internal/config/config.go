@@ -5,11 +5,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 type Config struct {
-	MusicFolders []string `json:"music_folders"`
-	Volume       int      `json:"volume"`
+	MusicFolders   []string `json:"music_folders"`
+	Volume         int      `json:"volume"`
+	LastTrackPath  string   `json:"last_track_path,omitempty"`
+	LastPositionMs int64    `json:"last_position_ms,omitempty"`
+	LastPaused     bool     `json:"last_paused,omitempty"`
 }
 
 func configDir() string {
@@ -25,8 +29,6 @@ func DefaultDBPath() string {
 	return filepath.Join(configDir(), "sky.db")
 }
 
-// normalizePath membersihkan path dan mengubah semua separator
-// jadi forward slash, supaya JSON tidak perlu escaping.
 func normalizePath(p string) string {
 	return filepath.ToSlash(filepath.Clean(p))
 }
@@ -44,7 +46,6 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	var cfg Config
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf(
@@ -54,8 +55,6 @@ func Load() (*Config, error) {
 			path, err,
 		)
 	}
-
-	// Normalisasi semua path setelah baca.
 	for i, p := range cfg.MusicFolders {
 		cfg.MusicFolders[i] = normalizePath(p)
 	}
@@ -63,18 +62,17 @@ func Load() (*Config, error) {
 }
 
 func (c *Config) Save() error {
-	// Normalisasi sebelum tulis, supaya file JSON selalu bersih.
 	cleaned := make([]string, len(c.MusicFolders))
 	for i, p := range c.MusicFolders {
 		cleaned[i] = normalizePath(p)
 	}
-
-	// Salinan sementara supaya tidak memutasi struct asli user.
 	out := Config{
-		MusicFolders: cleaned,
-		Volume:       c.Volume,
+		MusicFolders:   cleaned,
+		Volume:         c.Volume,
+		LastTrackPath:  c.LastTrackPath,
+		LastPositionMs: c.LastPositionMs,
+		LastPaused:     c.LastPaused,
 	}
-
 	path := DefaultConfigPath()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
@@ -86,19 +84,17 @@ func (c *Config) Save() error {
 	return os.WriteFile(path, data, 0o644)
 }
 
-// AddFolder menambahkan folder (kalau belum ada) dan simpan.
 func (c *Config) AddFolder(p string) error {
 	p = normalizePath(p)
 	for _, f := range c.MusicFolders {
 		if f == p {
-			return nil // sudah ada
+			return nil
 		}
 	}
 	c.MusicFolders = append(c.MusicFolders, p)
 	return c.Save()
 }
 
-// RemoveFolder menghapus folder dari daftar.
 func (c *Config) RemoveFolder(p string) error {
 	p = normalizePath(p)
 	out := c.MusicFolders[:0]
@@ -109,4 +105,22 @@ func (c *Config) RemoveFolder(p string) error {
 	}
 	c.MusicFolders = out
 	return c.Save()
+}
+
+// SetResume menyimpan track dan posisi terakhir. Path dinormalisasi
+// jadi forward slash supaya JSON-nya valid tanpa escaping.
+func (c *Config) SetResume(trackPath string, pos time.Duration, paused bool) {
+	c.LastTrackPath = filepath.ToSlash(trackPath)
+	c.LastPositionMs = pos.Milliseconds()
+	c.LastPaused = paused
+}
+
+func (c *Config) ClearResume() {
+	c.LastTrackPath = ""
+	c.LastPositionMs = 0
+	c.LastPaused = false
+}
+
+func (c *Config) ResumePosition() time.Duration {
+	return time.Duration(c.LastPositionMs) * time.Millisecond
 }

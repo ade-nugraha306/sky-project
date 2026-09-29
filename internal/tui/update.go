@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"path/filepath"
 	"time"
 
@@ -20,6 +21,14 @@ func tickCmd() tea.Cmd {
 	})
 }
 
+const statusFlashDuration = 3 * time.Second
+
+func (m Model) flash(s string) Model {
+	m.toast = s
+	m.toastUntil = time.Now().Add(statusFlashDuration)
+	return m
+}
+
 type scanDoneMsg struct {
 	count int
 	err   error
@@ -31,8 +40,9 @@ type tracksLoadedMsg struct {
 }
 
 type playResultMsg struct {
-	track library.Track
-	err   error
+	track    library.Track
+	resumeAt time.Duration
+	err      error
 }
 
 func scanCmd(cfg *config.Config, database *db.DB) tea.Cmd {
@@ -69,7 +79,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.list.SetSize(msg.Width, msg.Height-4)
 
-		// Browser pakai ~40% lebar; sisanya untuk preview.
 		listWidth := msg.Width * 40 / 100
 		if listWidth < 20 {
 			listWidth = 20
@@ -78,6 +87,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			listWidth = 60
 		}
 		m.browser.SetSize(listWidth, msg.Height-4)
+		m.folderList.SetSize(msg.Width, msg.Height-4)
 
 	case scanDoneMsg:
 		if msg.err != nil {
@@ -97,9 +107,38 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			items[i] = trackItem{track: t}
 		}
 		m.list.SetItems(items)
-		m.status = formatStatus(len(items))
-		return m, nil
 
+		// Set status dasar lebih dulu, supaya kalau resume trigger,
+		// kita sudah punya teks fallback yang benar saat toast hilang.
+		m.status = formatStatus(len(items))
+
+		// Resume: hanya sekali per sesi.
+		if !m.resumeChecked && m.cfg.LastTrackPath != "" && m.currentTrack == nil {
+			m.resumeChecked = true
+
+			tracks := make([]library.Track, len(msg.tracks))
+			copy(tracks, msg.tracks)
+
+			for i, t := range tracks {
+				if filepath.ToSlash(t.Path) != m.cfg.LastTrackPath {
+					continue
+				}
+				m.queue = tracks
+				m.queueIndex = i
+				pos := m.cfg.ResumePosition()
+				paused := m.cfg.LastPaused
+				track := t
+				return m, func() tea.Msg {
+					err := m.player.LoadAt(track.Path, pos, paused)
+					return playResultMsg{track: track, resumeAt: pos, err: err}
+				}
+			}
+			// Track tidak ditemukan — bersihkan resume lama.
+			m.cfg.ClearResume()
+			m.cfg.Save()
+		}
+		return m, nil
+	
 	case playResultMsg:
 		if msg.err != nil {
 			m.status = "gagal putar: " + msg.err.Error()
@@ -107,7 +146,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		t := msg.track
 		m.currentTrack = &t
-		m.status = "▶ " + t.Title
+
+		if msg.resumeAt > 0 {
+			dur := m.player.Duration()
+			icon := "▶"
+			if m.player.IsPaused() {
+				icon = "⏸"
+			}
+			m = m.flash(fmt.Sprintf("%s %s · %s / %s",
+				icon,
+				t.Title,
+				formatDuration(msg.resumeAt),
+				formatDuration(dur),
+			))
+		} else {
+			m = m.flash("▶ " + t.Title)
+		}
 		return m, nil
 
 	case dirLoadedMsg:
@@ -119,8 +173,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.browser.SetItems(msg.items)
 		m.status = msg.path
 
-		// Setelah SetItems, cursor reset ke index 0.
-		// Trigger preview untuk folder pertama.
 		if item, ok := m.browser.SelectedItem().(dirItem); ok {
 			return m, loadPreviewCmd(item.path)
 		}
@@ -141,22 +193,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
-		if m.mode == modeBrowser {
+		switch m.mode {
+		case modeBrowser:
 			return m.updateBrowser(msg)
+		case modeFolders:
+			return m.updateFolders(msg)
+		default:
+			return m.updateLibrary(msg)
 		}
-		return m.updateLibrary(msg)
 
 	case tickMsg:
-		// Kalau mode browser, tidak perlu update progress — hemat CPU.
-		if m.mode == modeBrowser {
-			return m, tickCmd()
+		// Bersihkan toast yang sudah kedaluwarsa.
+		if m.toast != "" && time.Now().After(m.toastUntil) {
+			m.toast = ""
 		}
 
-		// Cek apakah lagu selesai → auto-next.
+		if m.mode != modeLibrary {
+			return m, tickCmd()
+		}
 		if m.currentTrack != nil && m.player.IsFinished() {
 			next, cmd := m.playNext()
 			if cmd == nil {
-				// Queue habis — stop.
 				m.currentTrack = nil
 				m.status = "queue selesai"
 				return m, tickCmd()
@@ -165,19 +222,35 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tickCmd()
 	}
-	// Teruskan ke komponen yang sedang aktif.
+
 	var cmd tea.Cmd
-	if m.mode == modeBrowser {
+	switch m.mode {
+	case modeBrowser:
 		m.browser, cmd = m.browser.Update(msg)
-	} else {
+	case modeFolders:
+		m.folderList, cmd = m.folderList.Update(msg)
+	default:
 		m.list, cmd = m.list.Update(msg)
 	}
 	return m, cmd
 }
 
+// saveResume menyimpan posisi playback sekarang ke config.
+func (m Model) saveResume() {
+	if m.currentTrack != nil {
+		m.cfg.SetResume(
+			m.currentTrack.Path,
+			m.player.Position(),
+			m.player.IsPaused(),
+		)
+	} else {
+		m.cfg.ClearResume()
+	}
+	m.cfg.Save()
+}
+
 func (m Model) updateLibrary(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.list.FilterState() == list.Filtering {
-		// Biarkan list yang proses.
 		var cmd tea.Cmd
 		m.list, cmd = m.list.Update(msg)
 		return m, cmd
@@ -185,6 +258,7 @@ func (m Model) updateLibrary(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch msg.String() {
 	case "q", "ctrl+c":
+		m.saveResume()
 		return m, tea.Quit
 
 	case "r":
@@ -200,9 +274,17 @@ func (m Model) updateLibrary(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.status = "memuat " + start + "..."
 		return m, loadDirCmd(start)
 
+	case "d":
+		m.mode = modeFolders
+		items := make([]list.Item, 0, len(m.cfg.MusicFolders))
+		for _, p := range m.cfg.MusicFolders {
+			items = append(items, folderItem{path: p})
+		}
+		m.folderList.SetItems(items)
+		return m, nil
+
 	case "enter":
 		if _, ok := m.list.SelectedItem().(trackItem); ok {
-			// Set seluruh library jadi queue, mulai dari index yang disorot.
 			tracks := make([]library.Track, 0, len(m.list.Items()))
 			for _, it := range m.list.Items() {
 				if ti, ok := it.(trackItem); ok {
@@ -220,10 +302,15 @@ func (m Model) updateLibrary(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "p", "<":
 		prev, cmd := m.playPrev()
-		return prev, cmd	
+		return prev, cmd
 
 	case " ":
 		m.player.TogglePause()
+		if m.player.IsPaused() {
+			m = m.flash("⏸ paused")
+		} else {
+			m = m.flash("▶ playing")
+		}
 	}
 
 	var cmd tea.Cmd
@@ -240,6 +327,7 @@ func (m Model) updateBrowser(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch msg.String() {
 	case "ctrl+c":
+		m.saveResume()
 		return m, tea.Quit
 
 	case "esc":
@@ -247,7 +335,6 @@ func (m Model) updateBrowser(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, loadTracksCmd(m.db)
 
 	case "s":
-		// Tambahkan folder yang sedang dibuka ke config.
 		if err := m.cfg.AddFolder(m.browserPath); err != nil {
 			m.status = "gagal simpan: " + err.Error()
 			return m, nil
@@ -275,7 +362,6 @@ func (m Model) updateBrowser(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.browser, cmd = m.browser.Update(msg)
 
-	// Kalau cursor berpindah, refresh preview.
 	if m.browser.Index() != beforeIdx {
 		if item, ok := m.browser.SelectedItem().(dirItem); ok {
 			previewCmd := loadPreviewCmd(item.path)
@@ -285,8 +371,48 @@ func (m Model) updateBrowser(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-// playAt mengubah queueIndex dan mulai memutar track di index tsb.
-// Aman dipanggil kalau index di luar batas — tidak ada aksi.
+func (m Model) updateFolders(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c":
+		m.saveResume()
+		return m, tea.Quit
+
+	case "esc", "q":
+		m.mode = modeLibrary
+		return m, loadTracksCmd(m.db)
+
+	case "d", "delete", "backspace":
+		item, ok := m.folderList.SelectedItem().(folderItem)
+		if !ok {
+			return m, nil
+		}
+
+		if err := m.cfg.RemoveFolder(item.path); err != nil {
+			m.status = "gagal hapus folder: " + err.Error()
+			return m, nil
+		}
+
+		n, err := m.db.DeleteTracksUnderFolder(item.path)
+		if err != nil {
+			m.status = "folder dihapus, tapi gagal bersihkan lagu: " + err.Error()
+		} else {
+			m.status = fmt.Sprintf("dihapus: %s (%d lagu dibuang)", item.path, n)
+		}
+
+		// Rebuild folder list.
+		items := make([]list.Item, 0, len(m.cfg.MusicFolders))
+		for _, p := range m.cfg.MusicFolders {
+			items = append(items, folderItem{path: p})
+		}
+		m.folderList.SetItems(items)
+		return m, nil
+	}
+
+	var cmd tea.Cmd
+	m.folderList, cmd = m.folderList.Update(msg)
+	return m, cmd
+}
+
 func (m Model) playAt(index int) (Model, tea.Cmd) {
 	if index < 0 || index >= len(m.queue) {
 		return m, nil
@@ -313,28 +439,14 @@ func parentDir(path string) string {
 	}
 	parent := filepath.Dir(path)
 	if parent == path {
-		return "" // sudah di root
+		return ""
 	}
 	return parent
 }
 
 func formatStatus(n int) string {
 	if n == 0 {
-		return "belum ada lagu • tekan a untuk tambah folder • r untuk rescan"
+		return "belum ada lagu • a tambah folder • r rescan"
 	}
-	return "siap • " + itoa(n) + " lagu • a tambah folder • r rescan"
-}
-
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	var buf [20]byte
-	i := len(buf)
-	for n > 0 {
-		i--
-		buf[i] = byte('0' + n%10)
-		n /= 10
-	}
-	return string(buf[i:])
+	return fmt.Sprintf("siap • %d lagu • a tambah folder • d kelola folder • r rescan", n)
 }

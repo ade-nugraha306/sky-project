@@ -28,19 +28,31 @@ var (
 func (m Model) View() string {
 	var body, help string
 
-	if m.mode == modeBrowser {
+	switch m.mode {
+	case modeBrowser:
 		body = m.viewBrowser()
 		help = helpStyle.Render(
 			"↑/↓ navigasi • enter masuk • backspace/← naik • s pilih folder ini • / filter • esc batal",
 		)
-	} else {
+	case modeFolders:
+		body = m.folderList.View()
+		help = helpStyle.Render(
+			"↑/↓ navigasi • d/backspace hapus folder • esc kembali",
+		)
+	default:
 		body = m.viewLibrary()
 		help = helpStyle.Render(
-			"↑/↓ navigasi • enter play • spasi pause • n/p next/prev • / filter • a tambah folder • r rescan • q keluar",
+			"↑/↓ navigasi • enter play • spasi pause • n/p next/prev • a tambah folder • d kelola folder • / filter • r rescan • q keluar",
 		)
 	}
 
-	status := statusStyle.Render(m.status)
+	// Toast ambil prioritas kalau masih aktif; kalau tidak, tampil status biasa.
+	statusText := m.status
+	if m.toast != "" {
+		statusText = m.toast
+	}
+	status := statusStyle.Render(statusText)
+
 	return body + "\n" + status + "\n" + help
 }
 
@@ -50,10 +62,8 @@ func (m Model) viewLibrary() string {
 	return listView + "\n" + progress
 }
 
-// viewProgress menampilkan baris progress bar + durasi.
 func (m Model) viewProgress() string {
 	if m.currentTrack == nil {
-		// Belum ada lagu — tampilkan bar kosong.
 		bar := progressEmptyStyle.Render(strings.Repeat("─", m.progressWidth()))
 		return progressTimeStyle.Render("  --:-- ") + bar + progressTimeStyle.Render(" --:--  ")
 	}
@@ -61,7 +71,6 @@ func (m Model) viewProgress() string {
 	pos := m.player.Position()
 	dur := m.player.Duration()
 
-	// Kalau durasi belum terbaca (decoder baru load), fallback ke 0.
 	if dur <= 0 {
 		dur = 0
 	}
@@ -93,8 +102,6 @@ func (m Model) viewProgress() string {
 		progressTimeStyle.Render(durStr) + "  "
 }
 
-// progressWidth menghitung lebar bar berdasarkan lebar terminal.
-// Dikurangi untuk padding kiri/kanan + durasi (--:-- = 5 char × 2) + spasi.
 func (m Model) progressWidth() int {
 	w := m.width - 20
 	if w < 10 {
@@ -106,7 +113,6 @@ func (m Model) progressWidth() int {
 	return w
 }
 
-// formatDuration mengubah time.Duration jadi "M:SS" atau "H:MM:SS".
 func formatDuration(d time.Duration) string {
 	if d < 0 {
 		d = 0

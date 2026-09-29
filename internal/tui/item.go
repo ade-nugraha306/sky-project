@@ -31,3 +31,11 @@ func (i trackItem) Description() string {
 func (i trackItem) FilterValue() string {
 	return i.track.Title + " " + i.track.Artist + " " + i.track.Album
 }
+
+type folderItem struct {
+	path string
+}
+
+func (f folderItem) Title() string       { return f.path }
+func (f folderItem) Description() string { return "" }
+func (f folderItem) FilterValue() string { return f.path }

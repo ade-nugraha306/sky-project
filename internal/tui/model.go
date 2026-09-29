@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"time"
+
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -15,6 +17,7 @@ type mode int
 const (
 	modeLibrary mode = iota
 	modeBrowser
+	modeFolders
 )
 
 type Model struct {
@@ -25,21 +28,27 @@ type Model struct {
 	list        list.Model
 	browser     list.Model
 	browserPath string
+	folderList  list.Model
 
-	// Preview
 	preview      []previewEntry
 	previewFor   string
 	previewTotal int
 	previewErr   string
 
-	// Queue & playback
 	queue        []library.Track
 	queueIndex   int
 	currentTrack *library.Track
 
-	width      int
-	height     int
-	status     string
+	resumeChecked bool
+
+	// Toast: pesan sementara yang otomatis hilang setelah beberapa detik.
+	// Kalau kosong, `status` yang ditampilkan.
+	toast      string
+	toastUntil time.Time
+
+	width  int
+	height int
+	status string
 }
 
 func NewModel(cfg *config.Config, database *db.DB) Model {
@@ -53,14 +62,20 @@ func NewModel(cfg *config.Config, database *db.DB) Model {
 	b.SetShowStatusBar(false)
 	b.SetFilteringEnabled(true)
 
+	f := list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0)
+	f.Title = "Kelola Folder Musik"
+	f.SetShowStatusBar(false)
+	f.SetFilteringEnabled(false)
+
 	return Model{
-		cfg:    cfg,
-		db:     database,
-		player: player.New(),
-		mode:   modeLibrary,
-		list:   l,
-		browser: b,
-		status: "memuat...",
+		cfg:        cfg,
+		db:         database,
+		player:     player.New(),
+		mode:       modeLibrary,
+		list:       l,
+		browser:    b,
+		folderList: f,
+		status:     "memuat...",
 	}
 }
 

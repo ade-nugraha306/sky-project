@@ -24,6 +24,10 @@ func New() *Player {
 }
 
 func (p *Player) Load(path string) error {
+	return p.LoadAt(path, 0, false)
+}
+
+func (p *Player) LoadAt(path string, start time.Duration, paused bool) error {
 	f, err := os.Open(path)
 	if err != nil {
 		return err
@@ -45,6 +49,24 @@ func (p *Player) Load(path string) error {
 		p.stream.Close()
 	}
 
+	if start > 0 {
+		sample := format.SampleRate.N(start)
+		if sample < 0 {
+			sample = 0
+		}
+		if sample >= streamer.Len() {
+			if streamer.Len() > 0 {
+				sample = streamer.Len() - 1
+			} else {
+				sample = 0
+			}
+		}
+		if err := streamer.Seek(sample); err != nil {
+			f.Close()
+			return err
+		}
+	}
+
 	var finalStreamer beep.Streamer = streamer
 	if format.SampleRate != targetSampleRate {
 		finalStreamer = beep.Resample(
@@ -57,9 +79,21 @@ func (p *Player) Load(path string) error {
 
 	p.stream = streamer
 	p.format = format
-	p.ctrl = &beep.Ctrl{Streamer: finalStreamer}
+
+	// Paused di-set SEBELUM speaker.Play, jadi tidak ada
+	// beberapa milidetik audio yang bocor keluar.
+	p.ctrl = &beep.Ctrl{Streamer: finalStreamer, Paused: paused}
 	speaker.Play(p.ctrl)
 	return nil
+}
+
+func (p *Player) IsPaused() bool {
+	if p.ctrl == nil {
+		return false
+	}
+	speaker.Lock()
+	defer speaker.Unlock()
+	return p.ctrl.Paused
 }
 
 func (p *Player) TogglePause() {
