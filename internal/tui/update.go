@@ -310,17 +310,39 @@ func (m Model) updateLibrary(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "enter":
-		if _, ok := m.list.SelectedItem().(trackItem); ok {
-			tracks := make([]library.Track, 0, len(m.list.Items()))
-			for _, it := range m.list.Items() {
-				if ti, ok := it.(trackItem); ok {
-					tracks = append(tracks, ti.track)
-				}
-			}
-			idx := m.list.Index()
-			m.queue = tracks
-			return m.playAt(idx)
+		selected, ok := m.list.SelectedItem().(trackItem)
+		if !ok {
+			break
 		}
+
+		// VisibleItems() mengembalikan item yang TAMPIL saat ini —
+		// kalau ada filter aktif, hanya item yang match filter.
+		// Kalau tidak ada filter, ini sama dengan Items().
+		visible := m.list.VisibleItems()
+		tracks := make([]library.Track, 0, len(visible))
+		for _, it := range visible {
+			if ti, ok := it.(trackItem); ok {
+				tracks = append(tracks, ti.track)
+			}
+		}
+
+		// Cari index berdasarkan path, bukan m.list.Index().
+		// m.list.Index() adalah posisi di VisibleItems, tapi kita
+		// bangun tracks dari VisibleItems juga — jadi index itu bisa
+		// dipakai. Namun lookup by path lebih robust terhadap
+		// perubahan API list di masa depan.
+		idx := -1
+		for i, t := range tracks {
+			if t.Path == selected.track.Path {
+				idx = i
+				break
+			}
+		}
+		if idx < 0 {
+			break
+		}
+		m.queue = tracks
+		return m.playAt(idx)
 
 	case "n", ">":
 		next, cmd := m.playNext()
