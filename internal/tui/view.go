@@ -104,7 +104,7 @@ func (m Model) viewHelp() string {
 	b.WriteString("\n")
 	writeHelpRow(&b, "↑/↓, j/k", "Navigasi list")
 	writeHelpRow(&b, "/", "Aktifkan filter / cari")
-	writeHelpRow(&b, "c", "Bersihkan filter")
+	writeHelpRow(&b, "x", "Bersihkan filter")
 	writeHelpRow(&b, "esc", "Batal filter / keluar")
 
 	b.WriteString(helpSectionStyle.Render("Library"))

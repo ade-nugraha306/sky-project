@@ -415,7 +415,7 @@ func (m Model) updateLibrary(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.cfg.Save()
 		m = m.flash(fmt.Sprintf("🔊 %d%%", m.player.Volume()))
 
-	case "c":
+	case "x":
 		m.list.ResetFilter()
 		m = m.flash("filter dibersihkan")
 
