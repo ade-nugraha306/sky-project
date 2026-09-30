@@ -327,6 +327,18 @@ func (m Model) updateLibrary(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return next, cmd
 
 	case "p", "<":
+		if m.currentTrack == nil {
+			break
+		}
+		// Standar music player: kalau posisi sudah lewat 3 detik,
+		// "prev" restart lagu ini. Kalau masih di awal, baru pindah
+		// ke track sebelumnya di queue.
+		const restartThreshold = 3 * time.Second
+		if m.player.Position() > restartThreshold {
+			m.player.Restart()
+			m = m.flash("⏮ " + m.currentTrack.Title)
+			break
+		}
 		prev, cmd := m.playPrev()
 		return prev, cmd
 

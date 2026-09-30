@@ -195,6 +195,15 @@ func (p *Player) Seek(delta time.Duration) {
 	}
 }
 
+// Restart memutar dari awal track yang sedang aktif.
+// Tidak mengubah state paused.
+func (p *Player) Restart() {
+	if p.stream == nil {
+		return
+	}
+	p.Seek(-p.Position())
+}
+
 func (p *Player) Position() time.Duration {
 	if p.stream == nil {
 		return 0
