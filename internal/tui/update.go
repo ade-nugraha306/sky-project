@@ -377,6 +377,8 @@ func (m Model) updateLibrary(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "m":
 		m.repeat = (m.repeat + 1) % 3
+		m.cfg.RepeatMode = m.repeat.Key()
+		m.cfg.Save()
 		m = m.flash(m.repeat.String())
 
 	case "+", "=":

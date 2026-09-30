@@ -14,6 +14,7 @@ type Config struct {
 	LastTrackPath  string   `json:"last_track_path,omitempty"`
 	LastPositionMs int64    `json:"last_position_ms,omitempty"`
 	LastPaused     bool     `json:"last_paused,omitempty"`
+	RepeatMode     string   `json:"repeat_mode,omitempty"` // "off" | "one" | "all"
 }
 
 func configDir() string {
@@ -37,7 +38,11 @@ func Load() (*Config, error) {
 	path := DefaultConfigPath()
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
-		cfg := &Config{MusicFolders: []string{}, Volume: 100}
+		cfg := &Config{
+			MusicFolders: []string{},
+			Volume:       100,
+			RepeatMode:   "off",
+		}
 		if err := cfg.Save(); err != nil {
 			return nil, err
 		}
@@ -72,6 +77,7 @@ func (c *Config) Save() error {
 		LastTrackPath:  c.LastTrackPath,
 		LastPositionMs: c.LastPositionMs,
 		LastPaused:     c.LastPaused,
+		RepeatMode:     c.RepeatMode,
 	}
 	path := DefaultConfigPath()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

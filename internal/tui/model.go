@@ -40,6 +40,30 @@ func (r RepeatMode) String() string {
 	}
 }
 
+// Key mengembalikan representasi singkat untuk persistensi.
+// Berbeda dari String() yang untuk display.
+func (r RepeatMode) Key() string {
+	switch r {
+	case RepeatOne:
+		return "one"
+	case RepeatAll:
+		return "all"
+	default:
+		return "off"
+	}
+}
+
+func parseRepeatMode(s string) RepeatMode {
+	switch s {
+	case "one":
+		return RepeatOne
+	case "all":
+		return RepeatAll
+	default:
+		return RepeatOff
+	}
+}
+
 type Model struct {
 	cfg         *config.Config
 	db          *db.DB
@@ -94,7 +118,7 @@ func NewModel(cfg *config.Config, database *db.DB) Model {
 		db:         database,
 		player:     pl,
 		mode:       modeLibrary,
-		repeat:     RepeatOff,
+		repeat:     parseRepeatMode(cfg.RepeatMode),
 		list:       l,
 		browser:    b,
 		folderList: f,
