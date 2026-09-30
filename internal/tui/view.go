@@ -23,37 +23,57 @@ var (
 	progressFilledStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
 	progressEmptyStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("238"))
 	progressTimeStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("250"))
-	repeatBadgeStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
-	volBadgeStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("111"))
+	repeatBadgeStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+	volBadgeStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("111"))
 
-	nowPlayingStyle    = lipgloss.NewStyle().
-						Foreground(lipgloss.Color("39")).
-						Bold(true)
+	nowPlayingStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("39")).
+			Bold(true)
 	nowPlayingDimStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+
+	helpSectionStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("205")).
+				Bold(true).
+				MarginTop(1)
+	helpKeyStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("39")).
+			Width(16)
+	helpDescStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("250"))
+	helpBoxStyle  = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("240")).
+			Padding(1, 3)
 )
 
 func (m Model) View() string {
+	// Overlay help ambil alih seluruh layar.
+	if m.showHelp {
+		body := m.viewHelp()
+		help := helpStyle.Render("? / esc / q tutup bantuan")
+		status := statusStyle.Render(m.status)
+		return body + "\n" + status + "\n" + help
+	}
+
 	var body, help string
 
 	switch m.mode {
 	case modeBrowser:
 		body = m.viewBrowser()
 		help = helpStyle.Render(
-			"↑/↓ navigasi • enter masuk • backspace/← naik • s pilih folder ini • / filter • esc batal",
+			"↑/↓ nav • enter masuk • backspace naik • s pilih • / filter • ? help • esc batal",
 		)
 	case modeFolders:
 		body = m.folderList.View()
 		help = helpStyle.Render(
-			"↑/↓ navigasi • d/backspace hapus folder • esc kembali",
+			"↑/↓ nav • d hapus • ? help • esc kembali",
 		)
 	default:
 		body = m.viewLibrary()
 		help = helpStyle.Render(
-			"↑/↓ nav • enter play • spasi pause • n/p next/prev • ,/. seek • m repeat • +/- volume • c clear filter • a add • d folders • / filter • r rescan • q/esc keluar",
+			"↑/↓ nav • enter play • spasi pause • n/p next/prev • / filter • ? help • ,/. seek back /seek forward • q/esc keluar",
 		)
 	}
 
-	// Toast ambil prioritas kalau masih aktif; kalau tidak, tampil status biasa.
 	statusText := m.status
 	if m.toast != "" {
 		statusText = m.toast
@@ -61,6 +81,75 @@ func (m Model) View() string {
 	status := statusStyle.Render(statusText)
 
 	return body + "\n" + status + "\n" + help
+}
+
+// viewHelp menampilkan overlay panduan hotkey lengkap, dikelompokkan
+// per kategori. Dimensi di-clamp supaya tetap muat di terminal kecil.
+func (m Model) viewHelp() string {
+	var b strings.Builder
+
+	b.WriteString(helpSectionStyle.Render("Pemutaran"))
+	b.WriteString("\n")
+	writeHelpRow(&b, "enter", "Putar track yang disorot")
+	writeHelpRow(&b, "spasi", "Pause / resume")
+	writeHelpRow(&b, "n / >", "Track berikutnya")
+	writeHelpRow(&b, "p / <", "Track sebelumnya (restart kalau > 3 detik)")
+	writeHelpRow(&b, ", / [", "Mundur 5 detik")
+	writeHelpRow(&b, ". / ]", "Maju 5 detik")
+	writeHelpRow(&b, "m", "Ganti repeat mode: off → one → all")
+	writeHelpRow(&b, "+ / =", "Volume naik 5%")
+	writeHelpRow(&b, "- / _", "Volume turun 5%")
+
+	b.WriteString(helpSectionStyle.Render("Navigasi & Filter"))
+	b.WriteString("\n")
+	writeHelpRow(&b, "↑/↓, j/k", "Navigasi list")
+	writeHelpRow(&b, "/", "Aktifkan filter / cari")
+	writeHelpRow(&b, "c", "Bersihkan filter")
+	writeHelpRow(&b, "esc", "Batal filter / keluar")
+
+	b.WriteString(helpSectionStyle.Render("Library"))
+	b.WriteString("\n")
+	writeHelpRow(&b, "a", "Tambah folder musik")
+	writeHelpRow(&b, "d", "Kelola folder musik")
+	writeHelpRow(&b, "r", "Rescan library")
+
+	b.WriteString(helpSectionStyle.Render("Browser Folder"))
+	b.WriteString("\n")
+	writeHelpRow(&b, "enter", "Masuk folder")
+	writeHelpRow(&b, "backspace / ←", "Naik satu level")
+	writeHelpRow(&b, "s", "Pilih folder ini sebagai music folder")
+	writeHelpRow(&b, "esc", "Kembali ke library")
+
+	b.WriteString(helpSectionStyle.Render("Kelola Folder"))
+	b.WriteString("\n")
+	writeHelpRow(&b, "d / backspace", "Hapus folder dari daftar")
+	writeHelpRow(&b, "esc / q", "Kembali ke library")
+
+	b.WriteString(helpSectionStyle.Render("Umum"))
+	b.WriteString("\n")
+	writeHelpRow(&b, "?", "Tampilkan / sembunyikan panduan ini")
+	writeHelpRow(&b, "q / esc", "Keluar aplikasi (resume disimpan)")
+	writeHelpRow(&b, "ctrl+c", "Keluar paksa")
+
+	content := b.String()
+
+	// Bungkus dalam border, clamp lebar.
+	boxWidth := m.width - 4
+	if boxWidth < 40 {
+		boxWidth = 40
+	}
+	if boxWidth > 80 {
+		boxWidth = 80
+	}
+
+	return helpBoxStyle.Width(boxWidth).Render(content)
+}
+
+func writeHelpRow(b *strings.Builder, key, desc string) {
+	b.WriteString("  ")
+	b.WriteString(helpKeyStyle.Render(key))
+	b.WriteString(helpDescStyle.Render(desc))
+	b.WriteString("\n")
 }
 
 func (m Model) viewLibrary() string {

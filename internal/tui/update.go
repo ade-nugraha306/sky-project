@@ -191,6 +191,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		// Help overlay kalau aktif: hanya beberapa tombol yang di-handle.
+		// Tombol lain di-swallow supaya user tidak tidak sengaja
+		// mengubah state saat membaca panduan.
+		if m.showHelp {
+			switch msg.String() {
+			case "ctrl+c":
+				m.saveResume()
+				return m, tea.Quit
+			case "?", "esc", "q":
+				m.showHelp = false
+				return m, nil
+			}
+			return m, nil
+		}
+
+		if msg.String() == "?" {
+			m.showHelp = true
+			return m, nil
+		}
+
 		switch m.mode {
 		case modeBrowser:
 			return m.updateBrowser(msg)

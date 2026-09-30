@@ -89,6 +89,8 @@ type Model struct {
 	toast      string
 	toastUntil time.Time
 
+	showHelp bool // overlay panduan hotkey
+
 	width  int
 	height int
 	status string
