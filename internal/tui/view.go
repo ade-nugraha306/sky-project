@@ -25,6 +25,11 @@ var (
 	progressTimeStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("250"))
 	repeatBadgeStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 	volBadgeStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("111"))
+
+	nowPlayingStyle    = lipgloss.NewStyle().
+						Foreground(lipgloss.Color("39")).
+						Bold(true)
+	nowPlayingDimStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 )
 
 func (m Model) View() string {
@@ -60,8 +65,39 @@ func (m Model) View() string {
 
 func (m Model) viewLibrary() string {
 	listView := m.list.View()
+	nowPlaying := m.viewNowPlaying()
 	progress := m.viewProgress()
-	return listView + "\n" + progress
+	return listView + "\n" + nowPlaying + "\n" + progress
+}
+
+// viewNowPlaying menampilkan baris judul track yang sedang diputar,
+// lengkap dengan ikon play/pause. Kalau tidak ada track, tampilkan
+// placeholder abu-abu.
+func (m Model) viewNowPlaying() string {
+	if m.currentTrack == nil {
+		return nowPlayingDimStyle.Render("  · tidak ada lagu yang diputar")
+	}
+
+	t := m.currentTrack
+
+	// Format: "Artist — Title", fallback ke Title kalau artist kosong.
+	display := t.Title
+	if t.Artist != "" {
+		display = t.Artist + " — " + t.Title
+	}
+
+	// Ikon mengikuti state playback. IsPaused() aman dipanggil
+	// karena pakai speaker.Lock() internal.
+	icon := "⏸"
+	if !m.player.IsPaused() {
+		icon = "▶"
+	}
+
+	line := "  " + icon + " " + display
+	// Truncate supaya tidak wrap ke baris baru di terminal sempit.
+	line = lipgloss.NewStyle().MaxWidth(m.width).Render(line)
+
+	return nowPlayingStyle.Render(line)
 }
 
 func (m Model) viewProgress() string {
