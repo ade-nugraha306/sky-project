@@ -138,7 +138,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cfg.Save()
 		}
 		return m, nil
-	
+
 	case playResultMsg:
 		if msg.err != nil {
 			m.status = "gagal putar: " + msg.err.Error()
@@ -146,6 +146,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		t := msg.track
 		m.currentTrack = &t
+
+		// Reset status dasar — supaya kalau sebelumnya "queue selesai"
+		// atau pesan permanen lain, kembali ke status library yang benar
+		// setelah toast hilang.
+		m.status = formatStatus(len(m.list.Items()))
 
 		if msg.resumeAt > 0 {
 			dur := m.player.Duration()
@@ -262,7 +267,7 @@ func (m Model) handleTrackEnd() (tea.Model, tea.Cmd) {
 		nextIdx := m.queueIndex + 1
 		if nextIdx >= len(m.queue) {
 			m.currentTrack = nil
-			m.status = "queue selesai"
+			m = m.flash("queue selesai")
 			return m, tickCmd()
 		}
 		next, cmd := m.playAt(nextIdx)

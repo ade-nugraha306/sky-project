@@ -1,11 +1,9 @@
 package player
 
 import (
-	"os"
 	"time"
 
 	"github.com/gopxl/beep/v2"
-	"github.com/gopxl/beep/v2/mp3"
 	"github.com/gopxl/beep/v2/speaker"
 )
 
@@ -15,7 +13,7 @@ const resampleQuality = 4
 type Player struct {
 	ctrl      *beep.Ctrl
 	stream    beep.StreamSeekCloser
-	resampler *beep.Resampler // nil kalau sample rate sudah sesuai target
+	resampler *beep.Resampler
 	format    beep.Format
 	loaded    bool
 }
@@ -29,14 +27,8 @@ func (p *Player) Load(path string) error {
 }
 
 func (p *Player) LoadAt(path string, start time.Duration, paused bool) error {
-	f, err := os.Open(path)
+	streamer, format, err := decodeFile(path)
 	if err != nil {
-		return err
-	}
-
-	streamer, format, err := mp3.Decode(f)
-	if err != nil {
-		f.Close()
 		return err
 	}
 
@@ -63,7 +55,7 @@ func (p *Player) LoadAt(path string, start time.Duration, paused bool) error {
 			}
 		}
 		if err := streamer.Seek(sample); err != nil {
-			f.Close()
+			streamer.Close()
 			return err
 		}
 	}
@@ -123,7 +115,6 @@ func (p *Player) Seek(delta time.Duration) {
 	speaker.Lock()
 	defer speaker.Unlock()
 
-	// delta dalam satuan sample dari sumber (belum resample).
 	deltaSamples := p.format.SampleRate.N(delta)
 	target := p.stream.Position() + deltaSamples
 
