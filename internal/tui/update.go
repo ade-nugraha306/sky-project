@@ -126,14 +126,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.queue = tracks
 				m.queueIndex = i
 				pos := m.cfg.ResumePosition()
-				paused := m.cfg.LastPaused
 				track := t
 				return m, func() tea.Msg {
-					err := m.player.LoadAt(track.Path, pos, paused)
+					// Hardcode paused=true — selalu resume dalam
+					// keadaan pause, apapun flag di config.
+					err := m.player.LoadAt(track.Path, pos, true)
 					return playResultMsg{track: track, resumeAt: pos, err: err}
 				}
 			}
-			// Track tidak ditemukan — bersihkan resume lama.
 			m.cfg.ClearResume()
 			m.cfg.Save()
 		}
@@ -147,19 +147,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		t := msg.track
 		m.currentTrack = &t
 
-		// Reset status dasar — supaya kalau sebelumnya "queue selesai"
-		// atau pesan permanen lain, kembali ke status library yang benar
-		// setelah toast hilang.
 		m.status = formatStatus(len(m.list.Items()))
 
 		if msg.resumeAt > 0 {
 			dur := m.player.Duration()
-			icon := "▶"
-			if m.player.IsPaused() {
-				icon = "⏸"
-			}
-			m = m.flash(fmt.Sprintf("%s %s · %s / %s",
-				icon,
+			// Karena resume selalu pause, ikon selalu ⏸.
+			m = m.flash(fmt.Sprintf("⏸ %s · %s / %s",
 				t.Title,
 				formatDuration(msg.resumeAt),
 				formatDuration(dur),
@@ -233,13 +226,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-// saveResume menyimpan posisi playback sekarang ke config.
 func (m Model) saveResume() {
 	if m.currentTrack != nil {
+		// Paksa pause dulu supaya posisi stabil saat kita baca.
+		// Kalau tidak, ada window beberapa ms di mana playback
+		// bergerak antara IsPaused() dan Position().
+		if !m.player.IsPaused() {
+			m.player.TogglePause()
+		}
+		// Selalu simpan paused=true, sesuai permintaan user:
+		// resume dalam keadaan pause, biar ga ada audio nyetel
+		// mendadak saat buka aplikasi.
 		m.cfg.SetResume(
 			m.currentTrack.Path,
 			m.player.Position(),
-			m.player.IsPaused(),
+			true,
 		)
 	} else {
 		m.cfg.ClearResume()
@@ -315,9 +316,7 @@ func (m Model) updateLibrary(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			break
 		}
 
-		// VisibleItems() mengembalikan item yang TAMPIL saat ini —
-		// kalau ada filter aktif, hanya item yang match filter.
-		// Kalau tidak ada filter, ini sama dengan Items().
+		// Bangun queue dari item yang SEDANG TAMPIL (hasil filter).
 		visible := m.list.VisibleItems()
 		tracks := make([]library.Track, 0, len(visible))
 		for _, it := range visible {
@@ -326,11 +325,6 @@ func (m Model) updateLibrary(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		// Cari index berdasarkan path, bukan m.list.Index().
-		// m.list.Index() adalah posisi di VisibleItems, tapi kita
-		// bangun tracks dari VisibleItems juga — jadi index itu bisa
-		// dipakai. Namun lookup by path lebih robust terhadap
-		// perubahan API list di masa depan.
 		idx := -1
 		for i, t := range tracks {
 			if t.Path == selected.track.Path {
@@ -341,7 +335,10 @@ func (m Model) updateLibrary(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if idx < 0 {
 			break
 		}
+
 		m.queue = tracks
+		// Reset filter setelah play supaya user lihat seluruh library.
+		m.list.ResetFilter()
 		return m.playAt(idx)
 
 	case "n", ">":
@@ -395,6 +392,10 @@ func (m Model) updateLibrary(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.cfg.Volume = m.player.Volume()
 		m.cfg.Save()
 		m = m.flash(fmt.Sprintf("🔊 %d%%", m.player.Volume()))
+
+	case "c":
+		m.list.ResetFilter()
+		m = m.flash("filter dibersihkan")
 
 	case " ":
 		m.player.TogglePause()

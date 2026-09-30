@@ -44,7 +44,7 @@ func (m Model) View() string {
 	default:
 		body = m.viewLibrary()
 		help = helpStyle.Render(
-			"↑/↓ nav • enter play • spasi pause • n/p next/prev • ,/. seek • m repeat • +/- volume • a add • d folders • / filter • r rescan • q/esc keluar",
+			"↑/↓ nav • enter play • spasi pause • n/p next/prev • ,/. seek • m repeat • +/- volume • c clear filter • a add • d folders • / filter • r rescan • q/esc keluar",
 		)
 	}
 
