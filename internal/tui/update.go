@@ -348,6 +348,20 @@ func (m Model) updateLibrary(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.repeat = (m.repeat + 1) % 3
 		m = m.flash(m.repeat.String())
 
+	case "+", "=":
+		pct := m.player.Volume() + 5
+		m.player.SetVolume(pct)
+		m.cfg.Volume = m.player.Volume()
+		m.cfg.Save()
+		m = m.flash(fmt.Sprintf("🔊 %d%%", m.player.Volume()))
+
+	case "-", "_":
+		pct := m.player.Volume() - 5
+		m.player.SetVolume(pct)
+		m.cfg.Volume = m.player.Volume()
+		m.cfg.Save()
+		m = m.flash(fmt.Sprintf("🔊 %d%%", m.player.Volume()))
+
 	case " ":
 		m.player.TogglePause()
 		if m.player.IsPaused() {

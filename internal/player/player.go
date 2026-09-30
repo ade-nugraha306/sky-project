@@ -1,9 +1,11 @@
 package player
 
 import (
+	"math"
 	"time"
 
 	"github.com/gopxl/beep/v2"
+	"github.com/gopxl/beep/v2/effects"
 	"github.com/gopxl/beep/v2/speaker"
 )
 
@@ -14,12 +16,14 @@ type Player struct {
 	ctrl      *beep.Ctrl
 	stream    beep.StreamSeekCloser
 	resampler *beep.Resampler
+	volume    *effects.Volume
+	volPct    int
 	format    beep.Format
 	loaded    bool
 }
 
 func New() *Player {
-	return &Player{}
+	return &Player{volPct: 100}
 }
 
 func (p *Player) Load(path string) error {
@@ -60,7 +64,7 @@ func (p *Player) LoadAt(path string, start time.Duration, paused bool) error {
 		}
 	}
 
-	var finalStreamer beep.Streamer = streamer
+	var s beep.Streamer = streamer
 	var resampler *beep.Resampler
 	if format.SampleRate != targetSampleRate {
 		resampler = beep.Resample(
@@ -69,15 +73,59 @@ func (p *Player) LoadAt(path string, start time.Duration, paused bool) error {
 			targetSampleRate,
 			streamer,
 		)
-		finalStreamer = resampler
+		s = resampler
+	}
+
+	// Bungkus dengan volume wrapper. Kalau volPct == 100,
+	// Base^0 = 1 → tidak ada perubahan amplitudo.
+	vol := &effects.Volume{
+		Streamer: s,
+		Base:     2,
+		Volume:   pctToLog2(p.volPct),
+		Silent:   p.volPct == 0,
 	}
 
 	p.stream = streamer
 	p.resampler = resampler
+	p.volume = vol
 	p.format = format
-	p.ctrl = &beep.Ctrl{Streamer: finalStreamer, Paused: paused}
+	p.ctrl = &beep.Ctrl{Streamer: vol, Paused: paused}
 	speaker.Play(p.ctrl)
 	return nil
+}
+
+// pctToLog2 mengubah persentase linear (0..100) jadi eksponen
+// log2 untuk effects.Volume. 100% → 0 (normal), 50% → -1, 25% → -2.
+func pctToLog2(pct int) float64 {
+	if pct <= 0 {
+		return 0 // Silent flag yang urus
+	}
+	return math.Log2(float64(pct) / 100.0)
+}
+
+// SetVolume mengubah volume secara live tanpa restart track.
+// pct di-clamp ke [0, 100]. Efeknya langsung terdengar.
+func (p *Player) SetVolume(pct int) {
+	if pct < 0 {
+		pct = 0
+	}
+	if pct > 100 {
+		pct = 100
+	}
+	p.volPct = pct
+
+	if p.volume == nil {
+		return
+	}
+
+	speaker.Lock()
+	p.volume.Volume = pctToLog2(pct)
+	p.volume.Silent = pct == 0
+	speaker.Unlock()
+}
+
+func (p *Player) Volume() int {
+	return p.volPct
 }
 
 func (p *Player) TogglePause() {
@@ -105,6 +153,7 @@ func (p *Player) Stop() {
 		p.stream = nil
 	}
 	p.resampler = nil
+	p.volume = nil
 	p.ctrl = nil
 }
 
@@ -140,7 +189,9 @@ func (p *Player) Seek(delta time.Duration) {
 			targetSampleRate,
 			p.stream,
 		)
-		p.ctrl.Streamer = p.resampler
+		// Kita perlu wrap ulang karena streamer di dalam Volume
+		// sudah berubah. Update field Streamer di Volume.
+		p.volume.Streamer = p.resampler
 	}
 }
 

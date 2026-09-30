@@ -86,10 +86,13 @@ func NewModel(cfg *config.Config, database *db.DB) Model {
 	f.SetShowStatusBar(false)
 	f.SetFilteringEnabled(false)
 
+	pl := player.New()
+	pl.SetVolume(cfg.Volume)
+
 	return Model{
 		cfg:        cfg,
 		db:         database,
-		player:     player.New(),
+		player:     pl,
 		mode:       modeLibrary,
 		repeat:     RepeatOff,
 		list:       l,
