@@ -102,6 +102,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = "load gagal: " + msg.err.Error()
 			return m, nil
 		}
+
 		items := make([]list.Item, len(msg.tracks))
 		for i, t := range msg.tracks {
 			items[i] = trackItem{track: t}
@@ -128,12 +129,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				pos := m.cfg.ResumePosition()
 				track := t
 				return m, func() tea.Msg {
-					// Hardcode paused=true — selalu resume dalam
-					// keadaan pause, apapun flag di config.
+					// Resume selalu pause, apapun state terakhir.
 					err := m.player.LoadAt(track.Path, pos, true)
 					return playResultMsg{track: track, resumeAt: pos, err: err}
 				}
 			}
+
+			// Track tidak ditemukan — bersihkan resume lama.
 			m.cfg.ClearResume()
 			m.cfg.Save()
 		}
@@ -248,20 +250,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) saveResume() {
 	if m.currentTrack != nil {
-		// Paksa pause dulu supaya posisi stabil saat kita baca.
-		// Kalau tidak, ada window beberapa ms di mana playback
-		// bergerak antara IsPaused() dan Position().
+		// Paksa pause dulu supaya posisi stabil saat dibaca.
 		if !m.player.IsPaused() {
 			m.player.TogglePause()
 		}
-		// Selalu simpan paused=true, sesuai permintaan user:
-		// resume dalam keadaan pause, biar ga ada audio nyetel
-		// mendadak saat buka aplikasi.
-		m.cfg.SetResume(
-			m.currentTrack.Path,
-			m.player.Position(),
-			true,
-		)
+		m.cfg.SetResume(m.currentTrack.Path, m.player.Position())
 	} else {
 		m.cfg.ClearResume()
 	}

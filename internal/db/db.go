@@ -22,12 +22,8 @@ CREATE TABLE IF NOT EXISTS tracks (
     duration_ms INTEGER,
     added_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
-CREATE TABLE IF NOT EXISTS folders (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    path TEXT UNIQUE NOT NULL,
-    added_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
 CREATE INDEX IF NOT EXISTS idx_tracks_artist ON tracks(artist);
+CREATE INDEX IF NOT EXISTS idx_tracks_album ON tracks(album);
 `
 
 func New(path string) (*DB, error) {

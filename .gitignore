@@ -1,0 +1,31 @@
+# Binary hasil build
+sky
+sky.exe
+/sky
+/sky.exe
+*.exe
+
+# Database lokal
+*.db
+*.db-shm
+*.db-wal
+
+# Test & coverage
+*.test
+*.out
+coverage.txt
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+/dist/
+/build/

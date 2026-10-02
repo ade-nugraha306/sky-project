@@ -13,8 +13,7 @@ type Config struct {
 	Volume         int      `json:"volume"`
 	LastTrackPath  string   `json:"last_track_path,omitempty"`
 	LastPositionMs int64    `json:"last_position_ms,omitempty"`
-	LastPaused     bool     `json:"last_paused,omitempty"`
-	RepeatMode     string   `json:"repeat_mode,omitempty"` // "off" | "one" | "all"
+	RepeatMode     string   `json:"repeat_mode,omitempty"`
 }
 
 func configDir() string {
@@ -76,7 +75,6 @@ func (c *Config) Save() error {
 		Volume:         c.Volume,
 		LastTrackPath:  c.LastTrackPath,
 		LastPositionMs: c.LastPositionMs,
-		LastPaused:     c.LastPaused,
 		RepeatMode:     c.RepeatMode,
 	}
 	path := DefaultConfigPath()
@@ -115,16 +113,14 @@ func (c *Config) RemoveFolder(p string) error {
 
 // SetResume menyimpan track dan posisi terakhir. Path dinormalisasi
 // jadi forward slash supaya JSON-nya valid tanpa escaping.
-func (c *Config) SetResume(trackPath string, pos time.Duration, paused bool) {
+func (c *Config) SetResume(trackPath string, pos time.Duration) {
 	c.LastTrackPath = filepath.ToSlash(trackPath)
 	c.LastPositionMs = pos.Milliseconds()
-	c.LastPaused = paused
 }
 
 func (c *Config) ClearResume() {
 	c.LastTrackPath = ""
 	c.LastPositionMs = 0
-	c.LastPaused = false
 }
 
 func (c *Config) ResumePosition() time.Duration {
