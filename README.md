@@ -54,26 +54,40 @@ go run .
 
 ### Hotkeys
 
-#### Library (mode utama)
+### Navgiasi Global
+
+Tombol|Aksi
+------|----
+`L`   | Ke Library
+`P`  	| Ke Playlists
+`B` 	| Ke File Browser
+`F`  	| Ke Kelola Folder
+`x`	  | Bersihkan filter di list aktif
+`?`	  | Buka panduan hotkey lengkap
+
+#### Library 
 
 Tombol|Aksi
 ------|----
 `↑` / `↓`   |Navigasi list
 `Enter`	|Play 
-`Spasi`   | Pause / Resume
-`n` / `>`   | Track berikutnya
-`p` / `<`   | Track sebelumnya
-`,` / `[`   | Mundur 5 detik
-`.` / `]`   | Maju 5 detik
-`m`       | Ganti repeat mode
-`+` / `=`   | Volume naik 5%
-`-` / `_`   | Volume turun 5%
-`/`       | Filter / Search mode
-`x`       | Bersihkan Filter / Search
-`a`       | Tambah folder musik (membuka browser file)
-`r`       | rescan library
-`q` / `Esc` | Keluar aplikasi
-`Ctrl+C`  | Keluar paksa dari aplikasi
+`Spasi`	| Pause / resume
+`n` / `>`	| Track berikutnya
+`p` / `<`	| Track sebelumnya (restart kalau > 3 detik)
+`,` / `[`	| Mundur 5 detik
+`.` / `]`	| Maju 5 detik
+`m`	     | Ganti repeat: off → one → all
+`s`	     | Toggle shuffle
+`+` / `=`	 | Volume naik 5%
+`-` / `_`	 | Volume turun 5%
+`/`      | Filter / search
+`x`	     | Bersihkan filter
+`t`	     | Tambah track ke playlist
+`a`	     | Tambah folder musik (buka browser)
+`d`	     | Kelola folder musik
+`r`	     | Rescan library
+`q` / `Esc`	| Keluar (resume disimpan)
+`Ctrl+C` | Keluar paksa
 
 ---
 
@@ -104,16 +118,105 @@ Tombol | Aksi
 `d` / `Backspace` | Hapus folder dari daftar
 `Esc` / `q`  | Kembali ke library
 
+---
+
+#### Playlists
+
+---
+
+Tombol | Aksi
+-------|------
+`↑` / `↓`   | Navigasi list
+`Enter`	| Buka detail playlist
+`n`	    | Buat playlist baru
+`r`   	| Rename playlist
+`d`	    | Hapus playlist
+`/`	    | Filter playlist
+`Esc` / `q`	| Kembali ke library
+
+---
+
+#### Detail Playlist
+
+---
+Tombol | Aksi
+-------|------
+`↑` / `↓`   | Navigasi list
+`Enter`	| Play track 
+`n` / `>`	| Track berikutnya
+`p` / `<`	| Track sebelumnya (restart kalau > 3 detik)
+`,` / `[`	| Mundur 5 detik
+`.` / `]`	| Maju 5 detik
+`Spasi`	| Pause / resume
+`m`	    | Ganti repeat mode
+`d`	    | Hapus track dari playlist
+`/`	    | Filter track
+`Esc` / `Backspace` | Kembali ke daftar Playlists
+
+---
+
+#### Playlist Picker
+
+---
+
+Tombol | Aksi
+-------|------
+`↑` / `↓`   | Navigasi list
+`Enter`	| Play playlist
+`/`	    | Filter playlist
+`Esc`	  | Batal
+
+---
+
+### Tech Stack
+
+Komponen | Library
+---------|--------
+TUI framework  | [Bubble Tea](https://github.com/charmbracelet/bubbletea)
+TUI components | [Bubbles](https://github.com/charmbracelet/bubbles)
+TUI styling	   | [Lip Gloss](https://github.com/charmbracelet/lipgloss)
+Audio playback | [gopxl/beep v2](https://github.com/gopxl/beep)
+Database       | [modernc.org/sqlite](https://gitlab.com/cznic/sqlite)
+Metadata       | [dhowden/tag](https://github.com/dhowden/tag)
+
+---
+
 ### Batasan
 
-- M4A / AAC / Opus belum didukung
-- Tidak ada playlist untuk sekarang.
+- M4A / AAC / Opus belum didukung — beep v2 tidak punya decoder-nya.
+File dengan ekstensi ini akan di-skip saat scanning.
+
+- Hanya Windows 10+ — dependency terbaru (Bubble Tea, SQLite) butuh
+Go 1.24+, yang tidak jalan di Windows 8.1. Branch legacy-win8 untuk
+dukungan Windows 8.1 belum dibuat.
+
+- Tidak ada sort library — urutan selalu artist, album, title.
+
+- Tidak ada mouse support — hanya keyboard.
+
+- Tidak ada konfirmasi hapus folder — hati-hati saat menekan d di
+mode Kelola Folder.
 
 ### Future Update
 
-- [ ]Playlist buat / edit / hapus
+- [X] Playlist buat / edit / hapus
 - [ ] Mouse Click Support
-- [ ] Shuffle mode
+- [X] Shuffle mode
 - [ ] Sort library
 - [ ] Global Search
 - [ ] Format M4A
+- [ ] Konfirmasi hapus folder dan playlist
+- [ ] Reorder track dalam playlist
+- [ ] Info track (bitrate, sample rate, tahun, genre)
+- [ ] Bulk add ke playlist
+
+#### Belum dijadwalkan (bukan prioritas utama)
+- [ ] Prevent sleep during playback
+- [ ] File watcher (fsnotify) untuk auto-refresh library
+- [ ] Cover art di terminal (chafa/sixel/kitty)
+- [ ] Export / import M3U
+- [ ] Format M4A (via ffmpeg subprocess)
+- [ ] Refactor audio ke actor model
+- [ ] Media session integration (MPRIS / SMTC / macOS Now Playing)
+
+Lihat [CHANGELOG.md]() untuk riwayat perubahan per versi
