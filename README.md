@@ -219,4 +219,4 @@ mode Kelola Folder.
 - [ ] Refactor audio ke actor model
 - [ ] Media session integration (MPRIS / SMTC / macOS Now Playing)
 
-Lihat [CHANGELOG.md]() untuk riwayat perubahan per versi
+Lihat [CHANGELOG.md](./CHANGELOG.md) untuk riwayat perubahan per versi
