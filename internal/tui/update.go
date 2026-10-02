@@ -11,6 +11,7 @@ import (
 	"github.com/ade-nugraha306/sky-project/internal/config"
 	"github.com/ade-nugraha306/sky-project/internal/db"
 	"github.com/ade-nugraha306/sky-project/internal/library"
+	"github.com/ade-nugraha306/sky-project/internal/queue"
 )
 
 type tickMsg time.Time
@@ -350,8 +351,22 @@ func (m Model) updateLibrary(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 		m.queue = tracks
+		m.savedQueue = nil
 		// Reset filter setelah play supaya user lihat seluruh library.
 		m.list.ResetFilter()
+
+		// Kalau shuffle aktif, acak queue sebelum menentukan index.
+		// Queue baru — reset savedQueue lama.
+		if m.shuffle {
+			m.savedQueue = make([]library.Track, len(tracks))
+			copy(m.savedQueue, tracks)
+			m.queue = queue.Shuffle(tracks)
+			idx = queue.FindIndex(m.queue, selected.track.Path)
+			if idx < 0 {
+				idx = 0
+			}
+		}
+
 		return m.playAt(idx)
 
 	case "n", ">":
@@ -411,6 +426,45 @@ func (m Model) updateLibrary(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "x":
 		m.list.ResetFilter()
 		m = m.flash("filter dibersihkan")
+
+	case "s":
+		m.shuffle = !m.shuffle
+		m.cfg.Shuffle = m.shuffle
+		m.cfg.Save()
+
+		if len(m.queue) > 0 && m.currentTrack != nil {
+			if m.shuffle {
+				// Simpan urutan asli, lalu acak.
+				m.savedQueue = make([]library.Track, len(m.queue))
+				copy(m.savedQueue, m.queue)
+				m.queue = queue.Shuffle(m.queue)
+
+				// Cari posisi current track di queue yang baru.
+				idx := queue.FindIndex(m.queue, m.currentTrack.Path)
+				if idx >= 0 {
+					m.queueIndex = idx
+				}
+			} else {
+				// Restore urutan asli.
+				if len(m.savedQueue) == len(m.queue) {
+					m.queue = m.savedQueue
+					idx := queue.FindIndex(m.queue, m.currentTrack.Path)
+					if idx >= 0 {
+						m.queueIndex = idx
+					}
+				}
+				m.savedQueue = nil
+			}
+		} else if !m.shuffle {
+			// Kalau di-off saat belum ada queue, bersihkan saved.
+			m.savedQueue = nil
+		}
+
+		if m.shuffle {
+			m = m.flash("🔀 shuffle: on")
+		} else {
+			m = m.flash("shuffle: off")
+		}
 
 	case " ":
 		m.player.TogglePause()
@@ -534,11 +588,29 @@ func (m Model) playAt(index int) (Model, tea.Cmd) {
 }
 
 func (m Model) playNext() (Model, tea.Cmd) {
-	return m.playAt(m.queueIndex + 1)
+	next := m.queueIndex + 1
+	if next >= len(m.queue) {
+		// Queue sudah di akhir.
+		if m.shuffle && len(m.queue) > 0 {
+			// Shuffle aktif: reshuffle dan main dari awal.
+			// savedQueue tidak disentuh — tetap urutan asli,
+			// jadi toggle off nanti tetap restore dengan benar.
+			m.queue = queue.Shuffle(m.queue)
+			m.queueIndex = 0
+			return m.playAt(0)
+		}
+		// Shuffle off: tidak ada aksi.
+		return m, nil
+	}
+	return m.playAt(next)
 }
 
 func (m Model) playPrev() (Model, tea.Cmd) {
-	return m.playAt(m.queueIndex - 1)
+	prev := m.queueIndex - 1
+	if prev < 0 {
+		return m, nil
+	}
+	return m.playAt(prev)
 }
 
 func parentDir(path string) string {

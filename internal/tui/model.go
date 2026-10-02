@@ -70,6 +70,7 @@ type Model struct {
 	player      *player.Player
 	mode        mode
 	repeat      RepeatMode
+	shuffle     bool
 	list        list.Model
 	browser     list.Model
 	browserPath string
@@ -83,13 +84,14 @@ type Model struct {
 	queue        []library.Track
 	queueIndex   int
 	currentTrack *library.Track
+	savedQueue   []library.Track // queue asli sebelum shuffle
 
 	resumeChecked bool
 
 	toast      string
 	toastUntil time.Time
 
-	showHelp bool // overlay panduan hotkey
+	showHelp bool
 
 	width  int
 	height int
@@ -121,6 +123,7 @@ func NewModel(cfg *config.Config, database *db.DB) Model {
 		player:     pl,
 		mode:       modeLibrary,
 		repeat:     parseRepeatMode(cfg.RepeatMode),
+		shuffle:    cfg.Shuffle,
 		list:       l,
 		browser:    b,
 		folderList: f,

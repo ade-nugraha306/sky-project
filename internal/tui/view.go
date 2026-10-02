@@ -43,6 +43,10 @@ var (
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("240")).
 			Padding(1, 3)
+
+	shuffleBadgeStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("213")).
+				Bold(true)
 )
 
 func (m Model) View() string {
@@ -70,7 +74,7 @@ func (m Model) View() string {
 	default:
 		body = m.viewLibrary()
 		help = helpStyle.Render(
-			"↑/↓ nav • enter play • spasi pause • n/p next/prev • / filter • ? help • ,/. seek back /seek forward • q/esc keluar",
+			"↑/↓ nav • enter play • spasi pause • n/p next/prev • / filter • ? help • s shuffle • ,/. seek back / forward • q/esc keluar",
 		)
 	}
 
@@ -97,6 +101,7 @@ func (m Model) viewHelp() string {
 	writeHelpRow(&b, ", / [", "Mundur 5 detik")
 	writeHelpRow(&b, ". / ]", "Maju 5 detik")
 	writeHelpRow(&b, "m", "Ganti repeat mode: off → one → all")
+	writeHelpRow(&b, "s", "Toggle shuffle (acak urutan queue)")
 	writeHelpRow(&b, "+ / =", "Volume naik 5%")
 	writeHelpRow(&b, "- / _", "Volume turun 5%")
 
@@ -192,6 +197,11 @@ func (m Model) viewNowPlaying() string {
 func (m Model) viewProgress() string {
 	repeatBadge := repeatBadgeStyle.Render("[" + m.repeat.String() + "]")
 
+	shuffleBadge := ""
+	if m.shuffle {
+		shuffleBadge = " " + shuffleBadgeStyle.Render("[🔀]")
+	}
+
 	vol := m.player.Volume()
 	volBadge := volBadgeStyle.Render(fmt.Sprintf("🔊 %d%%", vol))
 	if vol == 0 {
@@ -201,12 +211,11 @@ func (m Model) viewProgress() string {
 	if m.currentTrack == nil {
 		bar := progressEmptyStyle.Render(strings.Repeat("─", m.progressWidth()))
 		return progressTimeStyle.Render("  --:-- ") + bar +
-			progressTimeStyle.Render(" --:--  ") + repeatBadge + "  " + volBadge
+			progressTimeStyle.Render(" --:--  ") + repeatBadge + shuffleBadge + "  " + volBadge
 	}
 
 	pos := m.player.Position()
 	dur := m.player.Duration()
-
 	if dur <= 0 {
 		dur = 0
 	}
@@ -236,7 +245,7 @@ func (m Model) viewProgress() string {
 		progressTimeStyle.Render(posStr) + " " +
 		bar + " " +
 		progressTimeStyle.Render(durStr) + "  " +
-		repeatBadge + "  " + volBadge
+		repeatBadge + shuffleBadge + "  " + volBadge
 }
 
 func (m Model) progressWidth() int {

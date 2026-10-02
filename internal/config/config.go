@@ -14,6 +14,7 @@ type Config struct {
 	LastTrackPath  string   `json:"last_track_path,omitempty"`
 	LastPositionMs int64    `json:"last_position_ms,omitempty"`
 	RepeatMode     string   `json:"repeat_mode,omitempty"`
+	Shuffle        bool     `json:"shuffle,omitempty"`
 }
 
 func configDir() string {
@@ -76,6 +77,7 @@ func (c *Config) Save() error {
 		LastTrackPath:  c.LastTrackPath,
 		LastPositionMs: c.LastPositionMs,
 		RepeatMode:     c.RepeatMode,
+		Shuffle:        c.Shuffle,
 	}
 	path := DefaultConfigPath()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
