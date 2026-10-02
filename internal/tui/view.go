@@ -47,6 +47,8 @@ var (
 	shuffleBadgeStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("213")).
 				Bold(true)
+	nowPlayingSourceStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("245"))
 )
 
 func (m Model) View() string {
@@ -64,17 +66,37 @@ func (m Model) View() string {
 	case modeBrowser:
 		body = m.viewBrowser()
 		help = helpStyle.Render(
-			"↑/↓ nav • enter masuk • backspace naik • s pilih • / filter • ? help • esc batal",
+			"↑/↓ nav • enter masuk • ← naik • s pilih • L lib • P playlist • F folders • ? help • esc",
 		)
 	case modeFolders:
 		body = m.folderList.View()
 		help = helpStyle.Render(
-			"↑/↓ nav • d hapus • ? help • esc kembali",
+			"↑/↓ nav • d hapus • L lib • P playlist • B browse • ? help • esc",
+		)
+	case modePlaylists:
+		body = m.playlistList.View()
+		if m.inputMode != inputNone {
+			body += "\n\n  " + m.textInput.View()
+			help = helpStyle.Render("enter simpan • esc batal")
+		} else {
+			help = helpStyle.Render(
+				"↑/↓ nav • enter buka • n baru • r rename • d hapus • L lib • B browse • ? help • esc",
+			)
+		}
+	case modePlaylistPicker:
+		body = m.playlistPicker.View()
+		help = helpStyle.Render(
+			"↑/↓ nav • enter pilih • L lib • P playlist • ? help • esc batal",
+		)
+	case modePlaylistDetail:
+		body = m.viewPlaylistDetail()
+		help = helpStyle.Render(
+			"↑/↓ • enter play • n/p • ,/. seek • spasi pause • m repeat • d hapus • / filter • ? help • esc",
 		)
 	default:
 		body = m.viewLibrary()
 		help = helpStyle.Render(
-			"↑/↓ nav • enter play • spasi pause • n/p next/prev • / filter • ? help • s shuffle • ,/. seek back / forward • q/esc keluar",
+			"↑/↓ nav • enter play • spasi pause • L lib • P playlist • B browse • F folders • ? help • q keluar",
 		)
 	}
 
@@ -90,7 +112,22 @@ func (m Model) View() string {
 // viewHelp menampilkan overlay panduan hotkey lengkap, dikelompokkan
 // per kategori. Dimensi di-clamp supaya tetap muat di terminal kecil.
 func (m Model) viewHelp() string {
+	if m.confirmDuplicate {
+		body := m.renderDuplicateConfirm()
+		help := helpStyle.Render("y tambahkan sebagai duplikat • n / esc batal")
+		status := statusStyle.Render(m.status)
+		return body + "\n" + status + "\n" + help
+	}
 	var b strings.Builder
+
+	b.WriteString(helpSectionStyle.Render("Navigasi Cepat"))
+	b.WriteString("\n")
+	writeHelpRow(&b, "L", "Ke Library")
+	writeHelpRow(&b, "P", "Ke Playlists")
+	writeHelpRow(&b, "B", "Ke File Browser")
+	writeHelpRow(&b, "F", "Ke Kelola Folder")
+	writeHelpRow(&b, "a", "Tambah folder (dari Library)")
+	writeHelpRow(&b, "x", "Bersihkan filter")
 
 	b.WriteString(helpSectionStyle.Render("Pemutaran"))
 	b.WriteString("\n")
@@ -117,6 +154,7 @@ func (m Model) viewHelp() string {
 	writeHelpRow(&b, "a", "Tambah folder musik")
 	writeHelpRow(&b, "d", "Kelola folder musik")
 	writeHelpRow(&b, "r", "Rescan library")
+	writeHelpRow(&b, "t", "Tambah track yang disorot ke playlist")
 
 	b.WriteString(helpSectionStyle.Render("Browser Folder"))
 	b.WriteString("\n")
@@ -135,6 +173,16 @@ func (m Model) viewHelp() string {
 	writeHelpRow(&b, "?", "Tampilkan / sembunyikan panduan ini")
 	writeHelpRow(&b, "q / esc", "Keluar aplikasi (resume disimpan)")
 	writeHelpRow(&b, "ctrl+c", "Keluar paksa")
+
+	b.WriteString(helpSectionStyle.Render("Playlist"))
+	b.WriteString("\n")
+	writeHelpRow(&b, "enter", "Buka playlist / play track")
+	writeHelpRow(&b, "n / >", "Track berikutnya (dari detail)")
+	writeHelpRow(&b, "p / <", "Track sebelumnya (dari detail)")
+	writeHelpRow(&b, ", / [", "Mundur 5 detik (dari detail)")
+	writeHelpRow(&b, ". / ]", "Maju 5 detik (dari detail)")
+	writeHelpRow(&b, "spasi", "Pause / resume (dari detail)")
+	writeHelpRow(&b, "d", "Hapus track dari playlist (dari detail)")
 
 	content := b.String()
 
@@ -164,6 +212,18 @@ func (m Model) viewLibrary() string {
 	return listView + "\n" + nowPlaying + "\n" + progress
 }
 
+func (m Model) viewPlaylistDetail() string {
+	title := fmt.Sprintf("📋 %s  (%d lagu)", m.currentPlaylistName, len(m.playlistTrackList.Items()))
+	if m.playbackSourceID == m.currentPlaylistID && m.currentPlaylistID != 0 {
+		title += "  ▶ playing from here"
+	}
+	header := previewHeaderStyle.Render(title)
+	listView := m.playlistTrackList.View()
+	nowPlaying := m.viewNowPlaying()
+	progress := m.viewProgress()
+	return header + "\n\n" + listView + "\n" + nowPlaying + "\n" + progress
+}
+
 // viewNowPlaying menampilkan baris judul track yang sedang diputar,
 // lengkap dengan ikon play/pause. Kalau tidak ada track, tampilkan
 // placeholder abu-abu.
@@ -173,25 +233,42 @@ func (m Model) viewNowPlaying() string {
 	}
 
 	t := m.currentTrack
-
-	// Format: "Artist — Title", fallback ke Title kalau artist kosong.
 	display := t.Title
 	if t.Artist != "" {
 		display = t.Artist + " — " + t.Title
 	}
 
-	// Ikon mengikuti state playback. IsPaused() aman dipanggil
-	// karena pakai speaker.Lock() internal.
 	icon := "⏸"
 	if !m.player.IsPaused() {
 		icon = "▶"
 	}
 
-	line := "  " + icon + " " + display
-	// Truncate supaya tidak wrap ke baris baru di terminal sempit.
-	line = lipgloss.NewStyle().MaxWidth(m.width).Render(line)
+	titlePart := "  " + icon + " " + display
 
-	return nowPlayingStyle.Render(line)
+	// Kalau tidak ada source label (misal setelah queue habis),
+	// tampilkan judul saja.
+	if m.playbackSourceName == "" {
+		return nowPlayingStyle.Render(
+			lipgloss.NewStyle().MaxWidth(m.width).Render(titlePart),
+		)
+	}
+
+	label := "[" + m.playbackSourceName + "]"
+	labelWidth := lipgloss.Width(label)
+
+	// Lebar untuk judul: sisa terminal dikurangi label dan 2 spasi pemisah.
+	titleWidth := m.width - labelWidth - 2
+	if titleWidth < 10 {
+		titleWidth = 10
+	}
+
+	// Truncate judul kalau kepanjangan, lalu pad kanan supaya label
+	// rata di ujung kanan terminal.
+	titleTruncated := lipgloss.NewStyle().MaxWidth(titleWidth).Render(titlePart)
+	titlePadded := lipgloss.NewStyle().Width(titleWidth).Render(titleTruncated)
+
+	return nowPlayingStyle.Render(titlePadded) +
+		nowPlayingSourceStyle.Render(label)
 }
 
 func (m Model) viewProgress() string {
@@ -354,4 +431,13 @@ func (m Model) renderPreview(width int) string {
 	}
 
 	return b.String()
+}
+
+func (m Model) renderDuplicateConfirm() string {
+	msg := fmt.Sprintf(
+		"  '%s'\n\n  sudah ada di playlist '%s'.\n\n  Tambah lagi sebagai duplikat?",
+		m.pendingTrack.Title,
+		m.confirmPlaylistName,
+	)
+	return helpBoxStyle.Render(msg)
 }

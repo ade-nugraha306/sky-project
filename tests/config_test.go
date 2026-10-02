@@ -132,13 +132,16 @@ func TestSetResume(t *testing.T) {
 	setTempHome(t)
 	cfg, _ := config.Load()
 
-	cfg.SetResume("D:/Music/Album/song.mp3", 76200*time.Millisecond)
+	cfg.SetResume("D:/Music/Album/song.mp3", 76200*time.Millisecond, 0)
 
 	if cfg.LastTrackPath != "D:/Music/Album/song.mp3" {
 		t.Errorf("LastTrackPath: got %q", cfg.LastTrackPath)
 	}
 	if cfg.LastPositionMs != 76200 {
 		t.Errorf("LastPositionMs: got %d, want 76200", cfg.LastPositionMs)
+	}
+	if cfg.LastPlaylistID != 0 {
+		t.Errorf("LastPlaylistID: got %d, want 0", cfg.LastPlaylistID)
 	}
 }
 
@@ -149,7 +152,7 @@ func TestSetResume_NormalizesPath(t *testing.T) {
 	setTempHome(t)
 	cfg, _ := config.Load()
 
-	cfg.SetResume(`D:\Music\song.mp3`, time.Second)
+	cfg.SetResume(`D:\Music\song.mp3`, time.Second, 0)
 	if cfg.LastTrackPath != "D:/Music/song.mp3" {
 		t.Errorf("path not normalized: %q", cfg.LastTrackPath)
 	}
@@ -158,7 +161,7 @@ func TestSetResume_NormalizesPath(t *testing.T) {
 func TestClearResume(t *testing.T) {
 	setTempHome(t)
 	cfg, _ := config.Load()
-	cfg.SetResume("D:/Music/song.mp3", 5*time.Second)
+	cfg.SetResume("D:/Music/song.mp3", 5*time.Second, 7)
 	cfg.ClearResume()
 
 	if cfg.LastTrackPath != "" {
@@ -166,6 +169,9 @@ func TestClearResume(t *testing.T) {
 	}
 	if cfg.LastPositionMs != 0 {
 		t.Errorf("LastPositionMs not cleared: %d", cfg.LastPositionMs)
+	}
+	if cfg.LastPlaylistID != 0 {
+		t.Errorf("LastPlaylistID not cleared: %d", cfg.LastPlaylistID)
 	}
 }
 

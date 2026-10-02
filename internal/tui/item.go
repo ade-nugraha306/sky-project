@@ -2,16 +2,22 @@ package tui
 
 import (
 	"path/filepath"
+	"fmt"
 
+	"github.com/ade-nugraha306/sky-project/internal/db"
 	"github.com/ade-nugraha306/sky-project/internal/library"
 )
 
 type trackItem struct {
-	track library.Track
+	track   library.Track
+	playing bool
 }
 
 func (i trackItem) Title() string {
-	return i.track.Title
+	if i.playing {
+		return "▶ " + i.track.Title
+	}
+	return "  " + i.track.Title
 }
 
 func (i trackItem) Description() string {
@@ -35,6 +41,22 @@ func (i trackItem) FilterValue() string {
 type folderItem struct {
 	path string
 }
+
+type playlistItem struct {
+	playlist db.Playlist
+}
+
+func (p playlistItem) Title() string { return p.playlist.Name }
+func (p playlistItem) Description() string {
+	if p.playlist.TrackCount == 0 {
+		return "kosong"
+	}
+	if p.playlist.TrackCount == 1 {
+		return "1 lagu"
+	}
+	return fmt.Sprintf("%d lagu", p.playlist.TrackCount)
+}
+func (p playlistItem) FilterValue() string { return p.playlist.Name }
 
 func (f folderItem) Title() string       { return f.path }
 func (f folderItem) Description() string { return "" }

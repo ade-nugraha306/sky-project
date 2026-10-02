@@ -15,6 +15,7 @@ type Config struct {
 	LastPositionMs int64    `json:"last_position_ms,omitempty"`
 	RepeatMode     string   `json:"repeat_mode,omitempty"`
 	Shuffle        bool     `json:"shuffle,omitempty"`
+	LastPlaylistID int64    `json:"last_playlist_id,omitempty"`
 }
 
 func configDir() string {
@@ -78,6 +79,7 @@ func (c *Config) Save() error {
 		LastPositionMs: c.LastPositionMs,
 		RepeatMode:     c.RepeatMode,
 		Shuffle:        c.Shuffle,
+		LastPlaylistID: c.LastPlaylistID,
 	}
 	path := DefaultConfigPath()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -115,14 +117,16 @@ func (c *Config) RemoveFolder(p string) error {
 
 // SetResume menyimpan track dan posisi terakhir. Path dinormalisasi
 // jadi forward slash supaya JSON-nya valid tanpa escaping.
-func (c *Config) SetResume(trackPath string, pos time.Duration) {
+func (c *Config) SetResume(trackPath string, pos time.Duration, playlistID int64) {
 	c.LastTrackPath = filepath.ToSlash(trackPath)
 	c.LastPositionMs = pos.Milliseconds()
+	c.LastPlaylistID = playlistID
 }
 
 func (c *Config) ClearResume() {
 	c.LastTrackPath = ""
 	c.LastPositionMs = 0
+	c.LastPlaylistID = 0
 }
 
 func (c *Config) ResumePosition() time.Duration {
