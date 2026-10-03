@@ -244,3 +244,40 @@ konsistensi hotkey.
   checkpoint dan menghapus file sampingan. Ini normal.
 - Satu koneksi (`SetMaxOpenConns(1)`) menserialisasi semua query.
   Untuk aplikasi TUI single-user, bottleneck tidak terasa.
+
+  ## [v0.3.2b] - 2026-10-03
+
+Rilis patch. Fokus: konsistensi hotkey global.
+
+### Ditambahkan
+
+- **Hotkey volume global (`+`/`=`, `-`/`_`) di semua mode** —
+  sebelumnya hanya bekerja di Library. Sekarang bisa diatur dari
+  Browser, Folders, Playlists, Playlist Detail, dan Playlist Picker.
+  Prinsip: state global (volume, repeat, shuffle, resume) harus
+  bisa diubah dari mode manapun tanpa harus kembali ke Library.
+
+### Diubah
+
+- Helper `adjustVolume(delta int)` di TUI — clamp, flash, dan
+  persist ke config dalam satu tempat. Menggantikan dua blok
+  duplikat di `updateLibrary`.
+- Hotkey `+`/`-` dipindahkan dari dispatch lokal di `updateLibrary`
+  ke global hotkey block (sejajar dengan `L`, `P`, `B`, `F`, `x`).
+- Guard `isFiltering()` tetap berlaku: `+`/`-` saat user sedang
+  mengetik filter akan masuk sebagai karakter ke kotak filter,
+  bukan men-trigger volume.
+
+### Catatan Teknis
+
+- Volume tetap live-update tanpa interupsi playback
+- Perubahan volume langsung di-`Save()` ke `config.json` (konsisten
+  dengan `m` repeat dan `s` shuffle)
+- Flash menunjukkan ikon `🔊` atau `🔇` (kalau volume 0%)
+
+### Testing
+
+- Test manual: ubah volume dari 5 mode berbeda — semua bekerja
+- Test manual: `/` di library, ketik `+` — karakter masuk ke filter,
+  volume tidak berubah
+- Test manual: ubah volume, `q`, buka lagi — nilai tersimpan
