@@ -7,8 +7,15 @@ import (
 	"github.com/ade-nugraha306/sky-project/internal/library"
 )
 
-func (d *DB) UpsertTrack(t library.Track) error {
-	_, err := d.conn.Exec(`
+func (d *DB) UpsertTracks(tracks []library.Track) error {
+	if len(tracks) == 0 {
+		return nil
+	}
+	tx, err := d.conn.Begin()
+	if err != nil {
+		return err
+	}
+	stmt, err := tx.Prepare(`
 		INSERT INTO tracks (path, title, artist, album, duration_ms)
 		VALUES (?, ?, ?, ?, ?)
 		ON CONFLICT(path) DO UPDATE SET
@@ -16,9 +23,22 @@ func (d *DB) UpsertTrack(t library.Track) error {
 			artist      = excluded.artist,
 			album       = excluded.album,
 			duration_ms = excluded.duration_ms
-	`, t.Path, t.Title, t.Artist, t.Album, t.DurationMs)
-	return err
+	`)
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+	defer stmt.Close()
+
+	for _, t := range tracks {
+		if _, err := stmt.Exec(t.Path, t.Title, t.Artist, t.Album, t.DurationMs); err != nil {
+			tx.Rollback()
+			return err
+		}
+	}
+	return tx.Commit()
 }
+
 
 func (d *DB) AllTracks() ([]library.Track, error) {
 	rows, err := d.conn.Query(`

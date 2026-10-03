@@ -51,12 +51,19 @@ func New(path string) (*DB, error) {
 
 	// DSN dengan pragma foreign_keys=ON supaya CASCADE bekerja.
 	// Path dinormalisasi ke forward slash agar DSN valid di Windows.
-	dsn := "file:" + filepath.ToSlash(path) + "?_pragma=foreign_keys(1)"
+	dsn := "file:" + filepath.ToSlash(path) +
+    "?_pragma=foreign_keys(1)" +
+    "&_pragma=journal_mode(WAL)" +
+    "&_pragma=busy_timeout(5000)" +
+    "&_pragma=synchronous(NORMAL)"
 
 	conn, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}
+	conn.SetMaxOpenConns(1)
+	conn.SetMaxIdleConns(1)
+	conn.SetConnMaxLifetime(0)
 	if _, err := conn.Exec(schema); err != nil {
 		conn.Close()
 		return nil, err

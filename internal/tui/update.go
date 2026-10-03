@@ -75,17 +75,18 @@ func loadPlaylistsCmd(database *db.DB) tea.Cmd {
 
 func scanCmd(cfg *config.Config, database *db.DB) tea.Cmd {
 	return func() tea.Msg {
+		var allTracks []library.Track
 		for _, folder := range cfg.MusicFolders {
 			paths, err := library.ScanFolder(folder)
 			if err != nil {
 				continue
 			}
 			for _, p := range paths {
-				track := library.ParseMetadata(p)
-				if err := database.UpsertTrack(track); err != nil {
-					return scanDoneMsg{err: err}
-				}
+				allTracks = append(allTracks, library.ParseMetadata(p))
 			}
+		}
+		if err := database.UpsertTracks(allTracks); err != nil {
+			return scanDoneMsg{err: err}
 		}
 		n, err := database.CountTracks()
 		return scanDoneMsg{count: n, err: err}
