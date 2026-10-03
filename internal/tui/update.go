@@ -349,6 +349,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m.gotoFolders()
 			case "x":
 				return m.clearActiveFilter()
+			case "+", "=":
+				return m.adjustVolume(+5)
+			case "-", "_":
+				return m.adjustVolume(-5)
 			}
 		}
 
@@ -588,20 +592,6 @@ func (m Model) updateLibrary(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.cfg.RepeatMode = m.repeat.Key()
 		m.cfg.Save()
 		m = m.flash(m.repeat.String())
-
-	case "+", "=":
-		pct := m.player.Volume() + 5
-		m.player.SetVolume(pct)
-		m.cfg.Volume = m.player.Volume()
-		m.cfg.Save()
-		m = m.flash(fmt.Sprintf("🔊 %d%%", m.player.Volume()))
-
-	case "-", "_":
-		pct := m.player.Volume() - 5
-		m.player.SetVolume(pct)
-		m.cfg.Volume = m.player.Volume()
-		m.cfg.Save()
-		m = m.flash(fmt.Sprintf("🔊 %d%%", m.player.Volume()))
 
 	case "s":
 		m.shuffle = !m.shuffle
@@ -1140,6 +1130,20 @@ func (m Model) gotoLibrary() (tea.Model, tea.Cmd) {
 	}
 	m.mode = modeLibrary
 	return m, loadTracksCmd(m.db)
+}
+
+func (m Model) adjustVolume(delta int) (tea.Model, tea.Cmd) {
+	pct := m.player.Volume() + delta
+	m.player.SetVolume(pct)
+	m.cfg.Volume = m.player.Volume()
+	m.cfg.Save()
+
+	icon := "🔊"
+	if m.player.Volume() == 0 {
+		icon = "🔇"
+	}
+	m = m.flash(fmt.Sprintf("%s %d%%", icon, m.player.Volume()))
+	return m, nil
 }
 
 func (m Model) clearActiveFilter() (tea.Model, tea.Cmd) {

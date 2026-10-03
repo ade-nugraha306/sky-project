@@ -66,7 +66,7 @@ func (m Model) View() string {
 	case modeBrowser:
 		body = m.viewBrowser()
 		help = helpStyle.Render(
-			"↑/↓ nav • enter masuk • ← naik • s pilih • L lib • P playlist • F folders • ? help • esc",
+			"↑/↓ nav • enter masuk • ← naik • s pilih • +/- vol • L lib • P playlist • F folders • ? help • esc",
 		)
 	case modeFolders:
 		body = m.folderList.View()
@@ -91,7 +91,7 @@ func (m Model) View() string {
 	case modePlaylistDetail:
 		body = m.viewPlaylistDetail()
 		help = helpStyle.Render(
-			"↑/↓ • enter play • n/p • ,/. seek • spasi pause • m repeat • d hapus • / filter • ? help • esc",
+		"↑/↓ • enter play • n/p • ,/. seek • spasi pause • +/- vol • m repeat • d hapus • / filter • ? help • esc",
 		)
 	default:
 		body = m.viewLibrary()
@@ -128,6 +128,7 @@ func (m Model) viewHelp() string {
 	writeHelpRow(&b, "F", "Ke Kelola Folder")
 	writeHelpRow(&b, "a", "Tambah folder (dari Library)")
 	writeHelpRow(&b, "x", "Bersihkan filter")
+	writeHelpRow(&b, "+ / -", "Volume ±5% (di semua mode)")
 
 	b.WriteString(helpSectionStyle.Render("Pemutaran"))
 	b.WriteString("\n")
