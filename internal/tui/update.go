@@ -53,12 +53,6 @@ type playlistsLoadedMsg struct {
 	err       error
 }
 
-type playlistTracksMsg struct {
-	playlistName string
-	tracks       []library.Track
-	err          error
-}
-
 type playlistDetailMsg struct {
 	playlistID   int64
 	playlistName string
@@ -302,6 +296,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Help overlay kalau aktif: hanya beberapa tombol yang di-handle.
 		// Tombol lain di-swallow supaya user tidak tidak sengaja
 		// mengubah state saat membaca panduan.
+
+		if msg.String() == "ctrl+c" {
+			return m, tea.Quit
+		}
 		if m.confirmDuplicate {
 			switch msg.String() {
 			case "y", "Y":
@@ -313,6 +311,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.pendingTrack = library.Track{}
 				m.mode = modeLibrary
 				return m, nil
+			case "q":
+				m.saveResume()
+				return m, tea.Quit
 			}
 			return m, nil
 		}
@@ -321,12 +322,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.showHelp {
 			switch msg.String() {
-			case "ctrl+c":
-				m.saveResume()
-				return m, tea.Quit
-			case "?", "esc", "q":
+			case "?", "esc":
 				m.showHelp = false
 				return m, nil
+			case "q":
+				m.saveResume()
+				return m, tea.Quit
 			}
 			return m, nil
 		}
@@ -463,7 +464,7 @@ func (m Model) updateLibrary(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg.String() {
-	case "q", "ctrl+c", "esc":
+	case "q", "esc":
 		m.saveResume()
 		return m, tea.Quit
 
@@ -808,8 +809,8 @@ func (m Model) updatePlaylists(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, loadTracksCmd(m.db)
 
 	case "q":
-			m.saveResume()
-			return m, tea.Quit
+		m.saveResume()
+		return m, tea.Quit
 
 	case "n":
 		m.inputMode = inputCreatePlaylist

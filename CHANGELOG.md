@@ -175,3 +175,72 @@ Rilis beta kedua. Fokus: playlist lengkap, shuffle, navigasi antar mode.
   fragile, tapi berfungsi untuk `modernc.org/sqlite`
 - Rename playlist aman by design (FK refer ke `id`, bukan `name`)
 - Resume selalu pause — konsisten dengan v0.1b
+
+## [v0.3.1b] - 2026-10-03
+
+Rilis patch. Fokus: stabilitas database, sinkronisasi library, dan
+konsistensi hotkey.
+
+### Diperbaiki
+
+#### Database
+- **`SQLITE_BUSY` saat scan folder besar** — SQLite default journal
+  mode (`DELETE`) mengunci seluruh file DB, dan `database/sql`
+  connection pool bisa memberi koneksi berbeda ke goroutine berbeda
+  (scan, refresh, auto-count) sehingga saling kunci. Fix:
+  `journal_mode(WAL)`, `busy_timeout(5000)`, `synchronous(NORMAL)`,
+  dan `SetMaxOpenConns(1)`.
+- **Deadlock di `DeleteTracksUnderFolder`** setelah single-connection
+  pool — `defer rows.Close()` menahan satu-satunya koneksi sampai
+  fungsi selesai, lalu `Begin()` menunggu koneksi yang tidak akan
+  pernah tersedia. Fix: `rows.Close()` eksplisit sebelum `Begin()`.
+- **Batch insert saat scan** — `UpsertTracks` membungkus seluruh
+  metadata dalam satu transaction, mengurangi commit per file.
+
+#### Sinkronisasi Library
+- **Track yang sudah dihapus dari disk tetap muncul setelah rescan** —
+  scan hanya melakukan UPSERT tanpa pernah DELETE track yang hilang.
+  Fix: `DeleteTracksNotIn(folder, foundPaths)` dipanggil setelah tiap
+  folder selesai di-scan. Aman: hanya memproses folder yang berhasil
+  di-scan (folder yang error di-skip konservatif). Konsekuensi:
+  FK CASCADE otomatis menghapus track yang sama dari semua playlist.
+
+#### Resume State
+- **Resume tidak disave saat `q` dari playlist** — di mode Playlists,
+  Playlist Detail, Browser, Folders, dan Playlist Picker, `q`
+  sebelumnya hanya kembali ke library, bukan quit. Fix: `q` sekarang
+  konsisten = save resume + quit di semua mode (kecuali input text).
+  `esc` = kembali/naik level.
+
+#### Konsistensi Hotkey
+- **`ctrl+c` sekarang bekerja di semua state** — sebelumnya tidak
+  di-handle saat user berada di input text, help overlay, atau popup
+  konfirmasi duplikat, sehingga user bisa "terjebak" tanpa cara
+  force-quit. Sekarang `ctrl+c` di-intercept di paling atas
+  `tea.KeyMsg` handler.
+- **`ctrl+c` di help overlay tidak lagi save resume** — konsisten
+  dengan semantik "force quit".
+- **Semantik final hotkey:**
+  - `ctrl+c` → force quit, tanpa save (bisa dari state apapun)
+  - `q` → save resume + quit (di semua mode non-input)
+  - `esc` → kembali/naik level; quit kalau di library
+
+### Testing
+
+- Semua test lama tetap PASS
+- Test manual: scan folder besar dengan auto-refresh berjalan di
+  latar belakang — tidak ada `SQLITE_BUSY`
+- Test manual: hapus file MP3 dari disk, tekan `r` — track hilang
+  dari library dan playlist
+- Test manual: quit (`q`) dari setiap mode — resume tersimpan
+  dengan source yang benar
+- Test manual: `ctrl+c` dari input text dan popup konfirmasi —
+  aplikasi langsung keluar tanpa save
+
+### Catatan Teknis
+
+- WAL menghasilkan file sampingan (`sky.db-wal`, `sky.db-shm`) saat
+  aplikasi berjalan. Saat ditutup dengan bersih, SQLite otomatis
+  checkpoint dan menghapus file sampingan. Ini normal.
+- Satu koneksi (`SetMaxOpenConns(1)`) menserialisasi semua query.
+  Untuk aplikasi TUI single-user, bottleneck tidak terasa.
