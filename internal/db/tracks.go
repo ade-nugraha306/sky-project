@@ -120,3 +120,68 @@ func (d *DB) DeleteTracksUnderFolder(folder string) (int, error) {
 	}
 	return len(ids), nil
 }
+
+func (d *DB) DeleteTracksNotIn(folder string, foundPaths map[string]bool) (int, error) {
+	folder = filepath.ToSlash(filepath.Clean(folder))
+	prefix := folder + "/"
+
+	// Fase 1: kumpulkan ID yang perlu dihapus (di luar transaction).
+	rows, err := d.conn.Query(`SELECT id, path FROM tracks`)
+	if err != nil {
+		return 0, err
+	}
+
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		var p string
+		if err := rows.Scan(&id, &p); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		normalized := filepath.ToSlash(filepath.Clean(p))
+
+		// Hanya proses track yang ada di bawah folder ini.
+		inFolder := normalized == folder || strings.HasPrefix(normalized, prefix)
+		if !inFolder {
+			continue
+		}
+
+		// Kalau tidak ditemukan saat scan, hapus.
+		if !foundPaths[normalized] {
+			ids = append(ids, id)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return 0, err
+	}
+	rows.Close()
+
+	if len(ids) == 0 {
+		return 0, nil
+	}
+
+	// Fase 2: hapus dalam satu transaction.
+	tx, err := d.conn.Begin()
+	if err != nil {
+		return 0, err
+	}
+	stmt, err := tx.Prepare(`DELETE FROM tracks WHERE id = ?`)
+	if err != nil {
+		tx.Rollback()
+		return 0, err
+	}
+	defer stmt.Close()
+
+	for _, id := range ids {
+		if _, err := stmt.Exec(id); err != nil {
+			tx.Rollback()
+			return 0, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return len(ids), nil
+}

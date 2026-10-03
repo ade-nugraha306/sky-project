@@ -75,18 +75,30 @@ func loadPlaylistsCmd(database *db.DB) tea.Cmd {
 
 func scanCmd(cfg *config.Config, database *db.DB) tea.Cmd {
 	return func() tea.Msg {
-		var allTracks []library.Track
 		for _, folder := range cfg.MusicFolders {
 			paths, err := library.ScanFolder(folder)
 			if err != nil {
 				continue
 			}
+
+			// Kumpulkan track + set path (dinormalisasi).
+			foundPaths := make(map[string]bool, len(paths))
+			tracks := make([]library.Track, 0, len(paths))
 			for _, p := range paths {
-				allTracks = append(allTracks, library.ParseMetadata(p))
+				normalized := filepath.ToSlash(filepath.Clean(p))
+				foundPaths[normalized] = true
+				tracks = append(tracks, library.ParseMetadata(p))
 			}
-		}
-		if err := database.UpsertTracks(allTracks); err != nil {
-			return scanDoneMsg{err: err}
+
+			// Upsert batch.
+			if err := database.UpsertTracks(tracks); err != nil {
+				return scanDoneMsg{err: err}
+			}
+
+			// Cleanup: hapus track yang sudah tidak ada di disk.
+			if _, err := database.DeleteTracksNotIn(folder, foundPaths); err != nil {
+				return scanDoneMsg{err: err}
+			}
 		}
 		n, err := database.CountTracks()
 		return scanDoneMsg{count: n, err: err}
@@ -651,7 +663,7 @@ func (m Model) updateBrowser(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg.String() {
-	case "ctrl+c":
+	case "q":
 		m.saveResume()
 		return m, tea.Quit
 
@@ -698,11 +710,11 @@ func (m Model) updateBrowser(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) updateFolders(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "ctrl+c":
+	case "q":
 		m.saveResume()
 		return m, tea.Quit
 
-	case "esc", "q":
+	case "esc":
 		m.mode = modeLibrary
 		return m, loadTracksCmd(m.db)
 
@@ -791,13 +803,13 @@ func (m Model) updatePlaylists(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg.String() {
-	case "ctrl+c":
-		m.saveResume()
-		return m, tea.Quit
-
-	case "esc", "q":
+	case "esc":
 		m.mode = modeLibrary
 		return m, loadTracksCmd(m.db)
+
+	case "q":
+			m.saveResume()
+			return m, tea.Quit
 
 	case "n":
 		m.inputMode = inputCreatePlaylist
@@ -853,11 +865,11 @@ func (m Model) updatePlaylistPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg.String() {
-	case "ctrl+c":
+	case "q":
 		m.saveResume()
 		return m, tea.Quit
 
-	case "esc", "q":
+	case "esc":
 		m.mode = modeLibrary
 		m.pendingTrack = library.Track{}
 		return m, nil
@@ -907,7 +919,7 @@ func (m Model) updatePlaylistDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg.String() {
-	case "ctrl+c":
+	case "q":
 		m.saveResume()
 		return m, tea.Quit
 
