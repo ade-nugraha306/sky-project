@@ -281,3 +281,108 @@ Rilis patch. Fokus: konsistensi hotkey global.
 - Test manual: `/` di library, ketik `+` — karakter masuk ke filter,
   volume tidak berubah
 - Test manual: ubah volume, `q`, buka lagi — nilai tersimpan
+
+## [v0.5b] - 2026-10-04
+
+Rilis beta keempat. Fokus: konfirmasi hapus di semua aksi destruktif.
+
+### Ditambahkan
+
+#### Konfirmasi Hapus
+Semua aksi destruktif sekarang memunculkan popup konfirmasi sebelum
+eksekusi. Mencegah data loss karena salah pencet.
+
+- **Hapus folder** (`d` di mode Folders) — popup menampilkan path
+  folder + pesan "File asli di disk TIDAK dihapus" untuk menghindari
+  kesalahpahaman user awam.
+- **Hapus playlist** (`d` di mode Playlists) — popup menampilkan nama
+  playlist + pesan "Track di dalamnya tidak terpengaruh".
+- **Hapus track dari playlist** (`d` di mode Playlist Detail) — popup
+  menampilkan judul track + pesan "Track tetap ada di library —
+  hanya dihapus dari playlist ini". Konsisten dengan permintaan:
+  dua tipe user (sengaja & tidak sengaja) harus dilindungi.
+- **Tambah track duplikat** ke playlist (existing, dari v0.3b) —
+  tetap bekerja, sekarang lewat dispatcher yang sama.
+
+Semua popup punya hotkey yang konsisten:
+- `y` → konfirmasi
+- `n` / `esc` → batal, kembali ke mode sebelumnya
+- `q` → save resume + quit
+- `ctrl+c` → force quit
+
+#### Generalisasi State Konfirmasi
+- Enum `confirmKind` dengan lima nilai:
+  `confirmNone`, `confirmDuplicate`, `confirmDeleteFolder`,
+  `confirmDeletePlaylist`, `confirmDeleteTrackFromPlaylist`.
+- Field baru di `Model`: `confirmFolderPath`, `confirmTrackIndex`,
+  `confirmTrackTitle` (di samping `confirmPlaylistID` dan
+  `confirmPlaylistName` yang sudah ada).
+- Helper `clearConfirm()` — reset semua state popup + kembalikan user
+  ke mode yang sesuai dengan konteks popup (bukan selalu ke Library).
+- Dispatcher `handleConfirmYes()` — route ke handler spesifik
+  berdasarkan `confirmKind`.
+- Handler terpisah:
+  - `handleConfirmDeleteFolderYes()`
+  - `handleConfirmDeletePlaylistYes()`
+  - `handleConfirmDeleteTrackFromPlaylistYes()`
+
+### Diperbaiki
+
+- **Popup konfirmasi tidak muncul** — blok render overlay salah
+  tempat di dalam `viewHelp()`, bukan di `View()`. Karena `viewHelp()`
+  hanya dipanggil saat `m.showHelp == true`, popup tidak pernah
+  dirender meskipun state-nya benar. Fix: pindahkan blok ke awal
+  `View()`, sebelum cek `showHelp`.
+- **Folder langsung terhapus sebelum popup muncul** — di
+  `updateFolders` case `d`, kode hapus lama masih tertinggal setelah
+  set `m.confirmKind`. Akibatnya folder terhapus duluan, dan popup
+  konfirmasi menunjuk ke folder yang sudah tidak ada. Fix: case `d`
+  hanya set state popup, logika hapus dipindah ke handler `y`.
+- **Playlist langsung terhapus sebelum popup muncul** — bug yang sama
+  di `updatePlaylists`. Fix: sama.
+- **Track dari playlist langsung terhapus sebelum popup muncul** —
+  bug yang sama lagi di `updatePlaylistDetail`. Fix: sama.
+- **`clearConfirm()` selalu kembali ke Library** — akibatnya user
+  yang membatalkan hapus folder/playlist terlempar ke Library,
+  padahal harusnya tetap di mode asalnya. Fix: kontekstual berdasarkan
+  `confirmKind`.
+
+### Diubah
+
+- `d` di mode Folders, Playlists, dan Playlist Detail sekarang
+  membuka popup, bukan langsung eksekusi.
+- Pesan popup hapus folder eksplisit menyebut file asli tidak
+  dihapus — supaya user tidak panik.
+- Hapus track dari playlist menggunakan `confirmTrackIndex` (by
+  posisi), bukan `track_id` — karena playlist mengizinkan duplikat,
+  index memastikan hanya instance yang disorot yang terhapus.
+
+### Catatan Teknis
+
+- Popup overlay menggunakan `helpBoxStyle` yang sama dengan help
+  overlay — border rounded abu-abu. Konsisten di semua popup.
+- `handleConfirmYes()` selalu fallback ke `clearConfirm()` kalau
+  `confirmKind` tidak dikenal — defensive programming.
+- Bug pola berulang tiga kali (folder, playlist, track) karena saat
+  refactor dari "langsung hapus" ke "konfirmasi dulu", kode hapus
+  lama tidak dihapus. Pelajaran untuk refactor berikutnya: selalu
+  grep untuk pemanggilan `RemoveFolder`, `DeletePlaylist`,
+  `RemoveTrackFromPlaylistAt` di luar handler `handleConfirm*Yes`.
+
+### Testing
+
+- Test manual: hapus folder → popup → `n` batal → folder masih ada,
+  tetap di mode Folders.
+- Test manual: hapus folder → popup → `y` → folder hilang, tetap
+  di mode Folders.
+- Test manual: hapus playlist → popup → `esc` batal → tetap di mode
+  Playlists.
+- Test manual: hapus track dari playlist → popup → `n` batal → track
+  masih ada, tetap di mode Playlist Detail.
+- Test manual: hapus track dari playlist → popup → `y` → track
+  hilang dari playlist, tetap ada di library.
+- Test manual: duplikat track → popup → `n` batal → kembali ke
+  Library (perilaku asli).
+- Test manual: `ctrl+c` dari semua popup → force quit tanpa save.
+- Test manual: `q` dari semua popup → save resume + quit.
+- Unit test: semua PASS (tidak ada perubahan DB layer).
