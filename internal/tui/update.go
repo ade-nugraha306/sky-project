@@ -980,16 +980,18 @@ func (m Model) updatePlaylistDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m = m.flash(m.repeat.String())
 
 	case "d", "delete":
+		selected, ok := m.playlistTrackList.SelectedItem().(trackItem)
+		if !ok {
+			break
+		}
 		idx := m.playlistTrackList.Index()
 		if idx < 0 {
 			break
 		}
-		if err := m.db.RemoveTrackFromPlaylistAt(m.currentPlaylistID, idx); err != nil {
-			m.status = "gagal hapus track: " + err.Error()
-			return m, nil
-		}
-		m = m.flash("track dihapus dari playlist")
-		return m, loadPlaylistDetailCmd(m.db, m.currentPlaylistID, m.currentPlaylistName)
+		m.confirmKind = confirmDeleteTrackFromPlaylist
+		m.confirmTrackIndex = idx
+		m.confirmTrackTitle = selected.track.Title
+		return m, nil
 	}
 
 	var cmd tea.Cmd
@@ -1020,6 +1022,8 @@ func (m Model) clearConfirm() (tea.Model, tea.Cmd) {
 		m.mode = modeFolders
 	case confirmDeletePlaylist:
 		m.mode = modePlaylists
+	case confirmDeleteTrackFromPlaylist:
+		m.mode = modePlaylistDetail
 	}
 
 	m.confirmKind = confirmNone
@@ -1040,6 +1044,8 @@ func (m Model) handleConfirmYes() (tea.Model, tea.Cmd) {
 		return m.handleConfirmDeleteFolderYes()
 	case confirmDeletePlaylist:
 		return m.handleConfirmDeletePlaylistYes()
+	case confirmDeleteTrackFromPlaylist:
+		return m.handleConfirmDeleteTrackFromPlaylistYes()
 	}
 	return m.clearConfirm()
 }
@@ -1104,6 +1110,23 @@ func (m Model) handleConfirmDeletePlaylistYes() (tea.Model, tea.Cmd) {
 	}
 	m = m.flash("dihapus: " + name)
 	return m, loadPlaylistsCmd(m.db)
+}
+
+func (m Model) handleConfirmDeleteTrackFromPlaylistYes() (tea.Model, tea.Cmd) {
+	idx := m.confirmTrackIndex
+	title := m.confirmTrackTitle
+
+	m.confirmKind = confirmNone
+	m.confirmTrackIndex = 0
+	m.confirmTrackTitle = ""
+	m.mode = modePlaylistDetail
+
+	if err := m.db.RemoveTrackFromPlaylistAt(m.currentPlaylistID, idx); err != nil {
+		m.status = "gagal hapus track: " + err.Error()
+		return m, nil
+	}
+	m = m.flash("dihapus dari playlist: " + title)
+	return m, loadPlaylistDetailCmd(m.db, m.currentPlaylistID, m.currentPlaylistName)
 }
 
 func (m Model) playAt(index int) (Model, tea.Cmd) {

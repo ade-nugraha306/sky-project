@@ -63,6 +63,8 @@ func (m Model) View() string {
 			helpText = "y hapus folder • n / esc batal"
 		case confirmDeletePlaylist:
 			helpText = "y hapus playlist • n / esc batal"
+		case confirmDeleteTrackFromPlaylist:
+			helpText = "y hapus track dari playlist • n / esc batal"
 		}
 		help := helpStyle.Render(helpText)
 		status := statusStyle.Render(m.status)
@@ -466,6 +468,11 @@ func (m Model) renderConfirmOverlay() string {
 		msg = fmt.Sprintf(
 			"  Hapus playlist?\n\n  '%s'\n\n  Track di dalamnya tidak terpengaruh — hanya playlist-nya yang hilang.",
 			m.confirmPlaylistName,
+		)
+	case confirmDeleteTrackFromPlaylist:
+		msg = fmt.Sprintf(
+			"  Hapus track dari playlist?\n\n  '%s'\n\n  Track tetap ada di library — hanya dihapus dari playlist ini.",
+			m.confirmTrackTitle,
 		)
 	}
 

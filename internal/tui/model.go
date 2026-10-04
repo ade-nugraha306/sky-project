@@ -28,6 +28,7 @@ const (
 	confirmDuplicate
 	confirmDeleteFolder
 	confirmDeletePlaylist
+	confirmDeleteTrackFromPlaylist
 )
 
 type mode int
@@ -70,6 +71,10 @@ type Model struct {
 	confirmFolderPath   string
 	confirmPlaylistID   int64
 	confirmPlaylistName string
+
+	// Khusus hapus track dari playlist
+	confirmTrackIndex int
+	confirmTrackTitle string
 
 	// Textinput untuk create/rename playlist.
 	textInput         textinput.Model
