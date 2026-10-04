@@ -52,6 +52,23 @@ var (
 )
 
 func (m Model) View() string {
+	// Konfirmasi popup ambil alih seluruh layar.
+	if m.confirmKind != confirmNone {
+		body := m.renderConfirmOverlay()
+		var helpText string
+		switch m.confirmKind {
+		case confirmDuplicate:
+			helpText = "y tambahkan sebagai duplikat • n / esc batal"
+		case confirmDeleteFolder:
+			helpText = "y hapus folder • n / esc batal"
+		case confirmDeletePlaylist:
+			helpText = "y hapus playlist • n / esc batal"
+		}
+		help := helpStyle.Render(helpText)
+		status := statusStyle.Render(m.status)
+		return body + "\n" + status + "\n" + help
+	}
+
 	// Overlay help ambil alih seluruh layar.
 	if m.showHelp {
 		body := m.viewHelp()
@@ -112,12 +129,6 @@ func (m Model) View() string {
 // viewHelp menampilkan overlay panduan hotkey lengkap, dikelompokkan
 // per kategori. Dimensi di-clamp supaya tetap muat di terminal kecil.
 func (m Model) viewHelp() string {
-	if m.confirmDuplicate {
-		body := m.renderDuplicateConfirm()
-		help := helpStyle.Render("y tambahkan sebagai duplikat • n / esc batal")
-		status := statusStyle.Render(m.status)
-		return body + "\n" + status + "\n" + help
-	}
 	var b strings.Builder
 
 	b.WriteString(helpSectionStyle.Render("Navigasi Cepat"))
@@ -434,11 +445,29 @@ func (m Model) renderPreview(width int) string {
 	return b.String()
 }
 
-func (m Model) renderDuplicateConfirm() string {
-	msg := fmt.Sprintf(
-		"  '%s'\n\n  sudah ada di playlist '%s'.\n\n  Tambah lagi sebagai duplikat?",
-		m.pendingTrack.Title,
-		m.confirmPlaylistName,
-	)
+func (m Model) renderConfirmOverlay() string {
+	var msg string
+
+	switch m.confirmKind {
+	case confirmDuplicate:
+		msg = fmt.Sprintf(
+			"  '%s'\n\n  sudah ada di playlist '%s'.\n\n  Tambah lagi sebagai duplikat?",
+			m.pendingTrack.Title,
+			m.confirmPlaylistName,
+		)
+
+	case confirmDeleteFolder:
+		msg = fmt.Sprintf(
+			"  Hapus folder dari library?\n\n  %s\n\n  Semua track di bawahnya akan dihapus dari database.\n  File asli di disk TIDAK dihapus.",
+			m.confirmFolderPath,
+		)
+
+	case confirmDeletePlaylist:
+		msg = fmt.Sprintf(
+			"  Hapus playlist?\n\n  '%s'\n\n  Track di dalamnya tidak terpengaruh — hanya playlist-nya yang hilang.",
+			m.confirmPlaylistName,
+		)
+	}
+
 	return helpBoxStyle.Render(msg)
 }

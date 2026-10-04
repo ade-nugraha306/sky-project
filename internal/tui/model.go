@@ -21,6 +21,15 @@ const (
 	inputRenamePlaylist
 )
 
+type confirmKind int
+
+const (
+	confirmNone confirmKind = iota
+	confirmDuplicate
+	confirmDeleteFolder
+	confirmDeletePlaylist
+)
+
 type mode int
 
 const (
@@ -57,7 +66,8 @@ type Model struct {
 	pendingTrack library.Track
 
 	// Overlay konfirmasi duplikat.
-	confirmDuplicate    bool
+	confirmKind         confirmKind
+	confirmFolderPath   string
 	confirmPlaylistID   int64
 	confirmPlaylistName string
 

@@ -300,17 +300,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
 		}
-		if m.confirmDuplicate {
+		if m.confirmKind != confirmNone {
 			switch msg.String() {
 			case "y", "Y":
-				return m.handleConfirmDuplicateYes()
+				return m.handleConfirmYes()
 			case "n", "N", "esc":
-				m.confirmDuplicate = false
-				m.confirmPlaylistID = 0
-				m.confirmPlaylistName = ""
-				m.pendingTrack = library.Track{}
-				m.mode = modeLibrary
-				return m, nil
+				return m.clearConfirm()
 			case "q":
 				m.saveResume()
 				return m, tea.Quit
@@ -714,25 +709,8 @@ func (m Model) updateFolders(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if !ok {
 			return m, nil
 		}
-
-		if err := m.cfg.RemoveFolder(item.path); err != nil {
-			m.status = "gagal hapus folder: " + err.Error()
-			return m, nil
-		}
-
-		n, err := m.db.DeleteTracksUnderFolder(item.path)
-		if err != nil {
-			m.status = "folder dihapus, tapi gagal bersihkan lagu: " + err.Error()
-		} else {
-			m.status = fmt.Sprintf("dihapus: %s (%d lagu dibuang)", item.path, n)
-		}
-
-		// Rebuild folder list.
-		items := make([]list.Item, 0, len(m.cfg.MusicFolders))
-		for _, p := range m.cfg.MusicFolders {
-			items = append(items, folderItem{path: p})
-		}
-		m.folderList.SetItems(items)
+		m.confirmKind = confirmDeleteFolder
+		m.confirmFolderPath = item.path
 		return m, nil
 	}
 
@@ -826,12 +804,10 @@ func (m Model) updatePlaylists(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if !ok {
 			return m, nil
 		}
-		if err := m.db.DeletePlaylist(item.playlist.ID); err != nil {
-			m.status = "gagal hapus: " + err.Error()
-			return m, nil
-		}
-		m = m.flash("dihapus: " + item.playlist.Name)
-		return m, loadPlaylistsCmd(m.db)
+		m.confirmKind = confirmDeletePlaylist
+		m.confirmPlaylistID = item.playlist.ID
+		m.confirmPlaylistName = item.playlist.Name
+		return m, nil
 
 	case "enter":
 		item, ok := m.playlistList.SelectedItem().(playlistItem)
@@ -881,7 +857,7 @@ func (m Model) updatePlaylistPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 		if exists {
 			// Tampilkan popup konfirmasi.
-			m.confirmDuplicate = true
+			m.confirmKind = confirmDuplicate
 			m.confirmPlaylistID = playlist.ID
 			m.confirmPlaylistName = playlist.Name
 			return m, nil
@@ -1034,15 +1010,46 @@ func (m Model) playlistTracksSnapshot() []library.Track {
 	return tracks
 }
 
-// handleConfirmDuplicateYes menangani user menekan 'y' di popup konfirmasi.
-// Menambahkan track sebagai duplikat, lalu kembali ke library.
+// clearConfirm mereset semua state popup konfirmasi dan mengembalikan
+// user ke mode yang sesuai dengan konteks popup.
+func (m Model) clearConfirm() (tea.Model, tea.Cmd) {
+	switch m.confirmKind {
+	case confirmDuplicate:
+		m.mode = modeLibrary
+	case confirmDeleteFolder:
+		m.mode = modeFolders
+	case confirmDeletePlaylist:
+		m.mode = modePlaylists
+	}
+
+	m.confirmKind = confirmNone
+	m.confirmFolderPath = ""
+	m.confirmPlaylistID = 0
+	m.confirmPlaylistName = ""
+	m.pendingTrack = library.Track{}
+	return m, nil
+}
+
+// handleConfirmYes menangani user menekan 'y' di popup konfirmasi.
+// Dispatcher ke handler spesifik berdasarkan m.confirmKind.
+func (m Model) handleConfirmYes() (tea.Model, tea.Cmd) {
+	switch m.confirmKind {
+	case confirmDuplicate:
+		return m.handleConfirmDuplicateYes()
+	case confirmDeleteFolder:
+		return m.handleConfirmDeleteFolderYes()
+	case confirmDeletePlaylist:
+		return m.handleConfirmDeletePlaylistYes()
+	}
+	return m.clearConfirm()
+}
+
 func (m Model) handleConfirmDuplicateYes() (tea.Model, tea.Cmd) {
 	track := m.pendingTrack
 	playlistID := m.confirmPlaylistID
 	playlistName := m.confirmPlaylistName
 
-	// Reset state popup dulu supaya tidak ada race kalau error.
-	m.confirmDuplicate = false
+	m.confirmKind = confirmNone
 	m.confirmPlaylistID = 0
 	m.confirmPlaylistName = ""
 	m.pendingTrack = library.Track{}
@@ -1054,6 +1061,49 @@ func (m Model) handleConfirmDuplicateYes() (tea.Model, tea.Cmd) {
 	}
 	m = m.flash(fmt.Sprintf("+ '%s' (duplikat) → '%s'", track.Title, playlistName))
 	return m, nil
+}
+
+func (m Model) handleConfirmDeleteFolderYes() (tea.Model, tea.Cmd) {
+	path := m.confirmFolderPath
+	m.confirmKind = confirmNone
+	m.confirmFolderPath = ""
+	m.mode = modeFolders
+
+	if err := m.cfg.RemoveFolder(path); err != nil {
+		m.status = "gagal hapus folder: " + err.Error()
+		return m, nil
+	}
+
+	n, err := m.db.DeleteTracksUnderFolder(path)
+	if err != nil {
+		m.status = "folder dihapus, tapi gagal bersihkan lagu: " + err.Error()
+	} else {
+		m = m.flash(fmt.Sprintf("dihapus: %s (%d lagu dibuang)", path, n))
+	}
+
+	// Rebuild folder list.
+	items := make([]list.Item, 0, len(m.cfg.MusicFolders))
+	for _, p := range m.cfg.MusicFolders {
+		items = append(items, folderItem{path: p})
+	}
+	m.folderList.SetItems(items)
+	return m, nil
+}
+
+func (m Model) handleConfirmDeletePlaylistYes() (tea.Model, tea.Cmd) {
+	id := m.confirmPlaylistID
+	name := m.confirmPlaylistName
+	m.confirmKind = confirmNone
+	m.confirmPlaylistID = 0
+	m.confirmPlaylistName = ""
+	m.mode = modePlaylists
+
+	if err := m.db.DeletePlaylist(id); err != nil {
+		m.status = "gagal hapus: " + err.Error()
+		return m, nil
+	}
+	m = m.flash("dihapus: " + name)
+	return m, loadPlaylistsCmd(m.db)
 }
 
 func (m Model) playAt(index int) (Model, tea.Cmd) {
