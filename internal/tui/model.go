@@ -40,6 +40,7 @@ const (
 	modePlaylists
 	modePlaylistPicker
 	modePlaylistDetail
+	modeFolderPicker
 )
 
 type Model struct {
@@ -59,6 +60,9 @@ type Model struct {
 	playlistTrackList   list.Model
 	currentPlaylistID   int64
 	currentPlaylistName string
+
+	folderPicker list.Model 
+	activeFolder string      
 
 	playbackSourceID   int64
 	playbackSourceName string
@@ -185,6 +189,11 @@ func NewModel(cfg *config.Config, database *db.DB) Model {
 	ti.CharLimit = 100
 	ti.Width = 50
 
+	fp := list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0)
+	fp.Title = "Pilih Folder Aktif"
+	fp.SetShowStatusBar(false)
+	fp.SetFilteringEnabled(true)
+
 	playerInst := player.New()
 	playerInst.SetVolume(cfg.Volume)
 
@@ -202,6 +211,8 @@ func NewModel(cfg *config.Config, database *db.DB) Model {
 		playlistPicker: pp,
 		playlistTrackList: plDetail,
 		textInput:    ti,
+		folderPicker: fp,
+		activeFolder: cfg.LastActiveFolder,
 		status:       "memuat...",
 	}
 }

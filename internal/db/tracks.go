@@ -62,6 +62,37 @@ func (d *DB) AllTracks() ([]library.Track, error) {
 	return tracks, rows.Err()
 }
 
+func (d *DB) AllTracksInFolder(folder string) ([]library.Track, error) {
+	if folder == "" {
+		return d.AllTracks()
+	}
+	folder = filepath.ToSlash(filepath.Clean(folder))
+	prefix := folder + "/"
+
+	rows, err := d.conn.Query(`
+		SELECT path, title, artist, album, duration_ms
+		FROM tracks
+		ORDER BY artist, album, title
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []library.Track
+	for rows.Next() {
+		var t library.Track
+		if err := rows.Scan(&t.Path, &t.Title, &t.Artist, &t.Album, &t.DurationMs); err != nil {
+			return nil, err
+		}
+		normalized := filepath.ToSlash(filepath.Clean(t.Path))
+		if normalized == folder || strings.HasPrefix(normalized, prefix) {
+			out = append(out, t)
+		}
+	}
+	return out, rows.Err()
+}
+
 func (d *DB) CountTracks() (int, error) {
 	var n int
 	err := d.conn.QueryRow(`SELECT COUNT(*) FROM tracks`).Scan(&n)

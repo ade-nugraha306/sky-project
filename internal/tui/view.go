@@ -49,6 +49,7 @@ var (
 				Bold(true)
 	nowPlayingSourceStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("245"))
+	activeFolderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("33"))
 )
 
 func (m Model) View() string {
@@ -112,10 +113,15 @@ func (m Model) View() string {
 		help = helpStyle.Render(
 		"↑/↓ • enter play • n/p • ,/. seek • spasi pause • +/- vol • m repeat • d hapus • / filter • ? help • esc",
 		)
+	case modeFolderPicker:
+		body = m.folderPicker.View()
+		help = helpStyle.Render(
+			"↑/↓ nav • enter pilih folder aktif • / filter • ? help • esc batal",
+		)
 	default:
 		body = m.viewLibrary()
 		help = helpStyle.Render(
-			"↑/↓ nav • enter play • spasi pause • L lib • P playlist • B browse • F folders • ? help • q keluar",
+			"↑/↓ nav • enter play • f folder • L lib • P playlist • B browse • F folders • ? help • q keluar",
 		)
 	}
 
@@ -142,6 +148,7 @@ func (m Model) viewHelp() string {
 	writeHelpRow(&b, "a", "Tambah folder (dari Library)")
 	writeHelpRow(&b, "x", "Bersihkan filter")
 	writeHelpRow(&b, "+ / -", "Volume ±5% (di semua mode)")
+	writeHelpRow(&b, "f", "Ganti folder aktif (Library)")
 
 	b.WriteString(helpSectionStyle.Render("Pemutaran"))
 	b.WriteString("\n")
@@ -169,6 +176,7 @@ func (m Model) viewHelp() string {
 	writeHelpRow(&b, "d", "Kelola folder musik")
 	writeHelpRow(&b, "r", "Rescan library")
 	writeHelpRow(&b, "t", "Tambah track yang disorot ke playlist")
+	writeHelpRow(&b, "f", "Ganti folder aktif")
 
 	b.WriteString(helpSectionStyle.Render("Browser Folder"))
 	b.WriteString("\n")
@@ -221,9 +229,31 @@ func writeHelpRow(b *strings.Builder, key, desc string) {
 
 func (m Model) viewLibrary() string {
 	listView := m.list.View()
+	folderBar := m.viewActiveFolder()
 	nowPlaying := m.viewNowPlaying()
 	progress := m.viewProgress()
-	return listView + "\n" + nowPlaying + "\n" + progress
+	return listView + "\n" + folderBar + "\n" + nowPlaying + "\n" + progress
+}
+
+// viewActiveFolder menampilkan folder aktif di atas now playing bar.
+// Selalu muncul di Library mode — kalau tidak ada folder aktif,
+// tampilkan "Semua Folder" untuk konsistensi.
+func (m Model) viewActiveFolder() string {
+	display := m.activeFolder
+	if display == "" {
+		display = "Semua Folder"
+	}
+
+	// Truncate dari depan kalau path kepanjangan. Tail lebih berguna
+	// daripada head — user tahu awal path-nya sendiri.
+	const maxLen = 60
+	if len(display) > maxLen {
+		display = "…" + display[len(display)-maxLen+1:]
+	}
+
+	line := "  📁 " + display
+	line = lipgloss.NewStyle().MaxWidth(m.width).Render(line)
+	return activeFolderStyle.Render(line)
 }
 
 func (m Model) viewPlaylistDetail() string {

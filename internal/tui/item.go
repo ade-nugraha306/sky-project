@@ -42,6 +42,24 @@ type folderItem struct {
 	path string
 }
 
+type folderPickItem struct {
+	path string
+}
+
+func (f folderPickItem) Title() string {
+	if f.path == "" {
+		return "[Semua Folder]"
+	}
+	return f.path
+}
+
+func (f folderPickItem) Description() string { return "" }
+func (f folderPickItem) FilterValue() string {
+	if f.path == "" {
+		return "Semua Folder"
+	}
+	return f.path
+}
 type playlistItem struct {
 	playlist db.Playlist
 }

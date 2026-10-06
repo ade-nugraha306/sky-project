@@ -181,15 +181,9 @@ func TestTracksInPlaylist_Empty(t *testing.T) {
 
 // Catatan: test insert track ke playlist (AddTrackToPlaylist)
 // akan ditambahkan di Batch 3 bersama logika duplikat.
-
 func insertTestTrack(t *testing.T, d *db.DB, path string) {
 	t.Helper()
-	if err := d.UpsertTrack(library.Track{
-		Path:  path,
-		Title: path,
-	}); err != nil {
-		t.Fatalf("UpsertTrack: %v", err)
-	}
+	upsertOne(t, d, library.Track{Path: path, Title: path})
 }
 
 func TestAddTrackToPlaylist(t *testing.T) {

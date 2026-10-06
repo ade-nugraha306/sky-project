@@ -99,9 +99,9 @@ func scanCmd(cfg *config.Config, database *db.DB) tea.Cmd {
 	}
 }
 
-func loadTracksCmd(database *db.DB) tea.Cmd {
+func loadTracksCmd(database *db.DB, folder string) tea.Cmd {
 	return func() tea.Msg {
-		tracks, err := database.AllTracks()
+		tracks, err := database.AllTracksInFolder(folder)
 		return tracksLoadedMsg{tracks: tracks, err: err}
 	}
 }
@@ -112,7 +112,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.list.SetSize(msg.Width, msg.Height-4)
+		m.list.SetSize(msg.Width, msg.Height-5)
 
 		listWidth := msg.Width * 40 / 100
 		if listWidth < 20 {
@@ -126,6 +126,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.playlistList.SetSize(msg.Width, msg.Height-4)
 		m.playlistPicker.SetSize(msg.Width, msg.Height-4)
 		m.playlistTrackList.SetSize(msg.Width, msg.Height-6)
+		m.folderPicker.SetSize(msg.Width, msg.Height-4)
 
 	case scanDoneMsg:
 		if msg.err != nil {
@@ -133,7 +134,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.status = "scan selesai, memuat lagu..."
-		return m, loadTracksCmd(m.db)
+		return m, loadTracksCmd(m.db, m.activeFolder)
 
 	case tracksLoadedMsg:
 		if msg.err != nil {
@@ -362,6 +363,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updatePlaylistPicker(msg)
 		case modePlaylistDetail:
 			return m.updatePlaylistDetail(msg)
+		case modeFolderPicker:
+			return m.updateFolderPicker(msg)
 		default:
 			return m.updateLibrary(msg)
 		}
@@ -389,6 +392,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.playlistPicker, cmd = m.playlistPicker.Update(msg)
 	case modePlaylistDetail:
 		m.playlistTrackList, cmd = m.playlistTrackList.Update(msg)
+	case modeFolderPicker:
+		m.folderPicker, cmd = m.folderPicker.Update(msg)
 	default:
 		m.list, cmd = m.list.Update(msg)
 	}
@@ -498,6 +503,16 @@ func (m Model) updateLibrary(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modePlaylistPicker
 		m.status = "pilih playlist untuk '" + item.track.Title + "'"
 		return m, loadPlaylistsCmd(m.db)
+
+	case "f":
+		items := make([]list.Item, 0, len(m.cfg.MusicFolders)+1)
+		items = append(items, folderPickItem{path: ""}) // [Semua Folder]
+		for _, p := range m.cfg.MusicFolders {
+			items = append(items, folderPickItem{path: p})
+		}
+		m.folderPicker.SetItems(items)
+		m.mode = modeFolderPicker
+		return m, nil
 
 	case "enter":
 		selected, ok := m.list.SelectedItem().(trackItem)
@@ -655,15 +670,19 @@ func (m Model) updateBrowser(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "esc":
 		m.mode = modeLibrary
-		return m, loadTracksCmd(m.db)
+		return m, loadTracksCmd(m.db, m.activeFolder)
 
 	case "s":
 		if err := m.cfg.AddFolder(m.browserPath); err != nil {
 			m.status = "gagal simpan: " + err.Error()
 			return m, nil
 		}
+		// Folder baru langsung jadi folder aktif.
+		m.activeFolder = m.browserPath
+		m.cfg.LastActiveFolder = m.browserPath
+		m.cfg.Save()
 		m.mode = modeLibrary
-		m.status = "menambahkan " + m.browserPath + "..."
+		m.status = "memuat " + m.browserPath + "..."
 		return m, scanCmd(m.cfg, m.db)
 
 	case "backspace", "left":
@@ -702,7 +721,19 @@ func (m Model) updateFolders(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "esc":
 		m.mode = modeLibrary
-		return m, loadTracksCmd(m.db)
+		return m, loadTracksCmd(m.db, m.activeFolder)
+
+	case "enter":
+		item, ok := m.folderList.SelectedItem().(folderItem)
+		if !ok {
+			return m, nil
+		}
+		m.activeFolder = item.path
+		m.cfg.LastActiveFolder = item.path
+		m.cfg.Save()
+		m.mode = modeLibrary
+		m.status = "folder aktif: " + item.path
+		return m, loadTracksCmd(m.db, m.activeFolder)
 
 	case "d", "delete", "backspace":
 		item, ok := m.folderList.SelectedItem().(folderItem)
@@ -774,7 +805,7 @@ func (m Model) updatePlaylists(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		m.mode = modeLibrary
-		return m, loadTracksCmd(m.db)
+		return m, loadTracksCmd(m.db, m.activeFolder)
 
 	case "q":
 		m.saveResume()
@@ -875,6 +906,44 @@ func (m Model) updatePlaylistPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	var cmd tea.Cmd
 	m.playlistPicker, cmd = m.playlistPicker.Update(msg)
+	return m, cmd
+}
+
+func (m Model) updateFolderPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.folderPicker.FilterState() == list.Filtering {
+		var cmd tea.Cmd
+		m.folderPicker, cmd = m.folderPicker.Update(msg)
+		return m, cmd
+	}
+
+	switch msg.String() {
+	case "q":
+		m.saveResume()
+		return m, tea.Quit
+
+	case "esc":
+		m.mode = modeLibrary
+		return m, nil
+
+	case "enter":
+		item, ok := m.folderPicker.SelectedItem().(folderPickItem)
+		if !ok {
+			return m, nil
+		}
+		m.activeFolder = item.path
+		m.cfg.LastActiveFolder = item.path
+		m.cfg.Save()
+		m.mode = modeLibrary
+		if item.path == "" {
+			m.status = "menampilkan semua folder"
+		} else {
+			m.status = "folder aktif: " + item.path
+		}
+		return m, loadTracksCmd(m.db, m.activeFolder)
+	}
+
+	var cmd tea.Cmd
+	m.folderPicker, cmd = m.folderPicker.Update(msg)
 	return m, cmd
 }
 
@@ -1071,6 +1140,11 @@ func (m Model) handleConfirmDuplicateYes() (tea.Model, tea.Cmd) {
 
 func (m Model) handleConfirmDeleteFolderYes() (tea.Model, tea.Cmd) {
 	path := m.confirmFolderPath
+	if path == m.activeFolder {
+		m.activeFolder = ""
+		m.cfg.LastActiveFolder = ""
+		m.cfg.Save()
+	}
 	m.confirmKind = confirmNone
 	m.confirmFolderPath = ""
 	m.mode = modeFolders
@@ -1193,6 +1267,8 @@ func (m Model) isFiltering() bool {
 		return m.playlistPicker.FilterState() == list.Filtering
 	case modePlaylistDetail:
 		return m.playlistTrackList.FilterState() == list.Filtering
+	case modeFolderPicker:
+		return m.folderPicker.FilterState() == list.Filtering
 	}
 	return false
 }
@@ -1202,7 +1278,7 @@ func (m Model) gotoLibrary() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.mode = modeLibrary
-	return m, loadTracksCmd(m.db)
+	return m, loadTracksCmd(m.db, m.activeFolder)
 }
 
 func (m Model) adjustVolume(delta int) (tea.Model, tea.Cmd) {
@@ -1250,6 +1326,11 @@ func (m Model) clearActiveFilter() (tea.Model, tea.Cmd) {
 			m = m.rebuildPlaylistTrackList()
 			hadFilter = true
 		}
+	case modeFolderPicker:
+		if m.folderPicker.FilterState() != list.Unfiltered {
+			m.folderPicker.ResetFilter()
+			hadFilter = true
+		}
 	}
 
 	if hadFilter {
@@ -1257,7 +1338,6 @@ func (m Model) clearActiveFilter() (tea.Model, tea.Cmd) {
 	}
 	return m, nil
 }
-
 
 func (m Model) gotoPlaylists() (tea.Model, tea.Cmd) {
 	if m.mode == modePlaylists {

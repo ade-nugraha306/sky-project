@@ -19,6 +19,15 @@ func newTestDB(t *testing.T) *db.DB {
 	return d
 }
 
+// upsertOne membungkus UpsertTracks untuk single track. Dipakai
+// oleh test yang hanya butuh insert satu track.
+func upsertOne(t *testing.T, d *db.DB, track library.Track) {
+	t.Helper()
+	if err := d.UpsertTracks([]library.Track{track}); err != nil {
+		t.Fatalf("UpsertTracks: %v", err)
+	}
+}
+
 func TestNew_EmptyDB(t *testing.T) {
 	d := newTestDB(t)
 	n, err := d.CountTracks()
@@ -30,18 +39,17 @@ func TestNew_EmptyDB(t *testing.T) {
 	}
 }
 
+// ===== UpsertTrack (single, via upsertOne helper) =====
+
 func TestUpsertTrack_Insert(t *testing.T) {
 	d := newTestDB(t)
-	track := library.Track{
+	upsertOne(t, d, library.Track{
 		Path:       "D:/Music/song.mp3",
 		Title:      "Song",
 		Artist:     "Artist",
 		Album:      "Album",
 		DurationMs: 180000,
-	}
-	if err := d.UpsertTrack(track); err != nil {
-		t.Fatalf("UpsertTrack: %v", err)
-	}
+	})
 	n, _ := d.CountTracks()
 	if n != 1 {
 		t.Errorf("expected 1 track, got %d", n)
@@ -53,9 +61,7 @@ func TestUpsertTrack_Idempotent(t *testing.T) {
 	track := library.Track{Path: "D:/Music/song.mp3", Title: "Song"}
 
 	for i := 0; i < 3; i++ {
-		if err := d.UpsertTrack(track); err != nil {
-			t.Fatalf("UpsertTrack #%d: %v", i, err)
-		}
+		upsertOne(t, d, track)
 	}
 	n, _ := d.CountTracks()
 	if n != 1 {
@@ -67,8 +73,8 @@ func TestUpsertTrack_UpdatesOnConflict(t *testing.T) {
 	d := newTestDB(t)
 	path := "D:/Music/song.mp3"
 
-	d.UpsertTrack(library.Track{Path: path, Title: "Original", Artist: "Old"})
-	d.UpsertTrack(library.Track{Path: path, Title: "Updated", Artist: "New"})
+	upsertOne(t, d, library.Track{Path: path, Title: "Original", Artist: "Old"})
+	upsertOne(t, d, library.Track{Path: path, Title: "Updated", Artist: "New"})
 
 	tracks, err := d.AllTracks()
 	if err != nil {
@@ -85,11 +91,79 @@ func TestUpsertTrack_UpdatesOnConflict(t *testing.T) {
 	}
 }
 
+// ===== UpsertTracks (batch) =====
+
+func TestUpsertTracks_Batch(t *testing.T) {
+	d := newTestDB(t)
+	tracks := []library.Track{
+		{Path: "D:/Music/a.mp3", Title: "A", Artist: "X"},
+		{Path: "D:/Music/b.mp3", Title: "B", Artist: "Y"},
+		{Path: "D:/Music/c.mp3", Title: "C", Artist: "Z"},
+	}
+	if err := d.UpsertTracks(tracks); err != nil {
+		t.Fatalf("UpsertTracks: %v", err)
+	}
+	n, _ := d.CountTracks()
+	if n != 3 {
+		t.Errorf("expected 3 tracks, got %d", n)
+	}
+}
+
+func TestUpsertTracks_Idempotent(t *testing.T) {
+	d := newTestDB(t)
+	tracks := []library.Track{
+		{Path: "a", Title: "A"},
+		{Path: "b", Title: "B"},
+	}
+	for i := 0; i < 3; i++ {
+		if err := d.UpsertTracks(tracks); err != nil {
+			t.Fatalf("UpsertTracks #%d: %v", i, err)
+		}
+	}
+	n, _ := d.CountTracks()
+	if n != 2 {
+		t.Errorf("expected 2 tracks after 3 batch upserts, got %d", n)
+	}
+}
+
+func TestUpsertTracks_Empty(t *testing.T) {
+	d := newTestDB(t)
+	if err := d.UpsertTracks(nil); err != nil {
+		t.Fatalf("UpsertTracks nil: %v", err)
+	}
+	if err := d.UpsertTracks([]library.Track{}); err != nil {
+		t.Fatalf("UpsertTracks empty slice: %v", err)
+	}
+	n, _ := d.CountTracks()
+	if n != 0 {
+		t.Errorf("expected 0 tracks, got %d", n)
+	}
+}
+
+func TestUpsertTracks_UpdatesOnConflict(t *testing.T) {
+	d := newTestDB(t)
+	first := []library.Track{{Path: "a", Title: "Old"}}
+	second := []library.Track{{Path: "a", Title: "New"}}
+
+	d.UpsertTracks(first)
+	d.UpsertTracks(second)
+
+	tracks, _ := d.AllTracks()
+	if len(tracks) != 1 {
+		t.Fatalf("expected 1 track, got %d", len(tracks))
+	}
+	if tracks[0].Title != "New" {
+		t.Errorf("Title: got %q, want %q", tracks[0].Title, "New")
+	}
+}
+
+// ===== AllTracks / AllTracksInFolder =====
+
 func TestAllTracks_Ordering(t *testing.T) {
 	d := newTestDB(t)
-	d.UpsertTrack(library.Track{Path: "a", Title: "Z", Artist: "B"})
-	d.UpsertTrack(library.Track{Path: "b", Title: "A", Artist: "B"})
-	d.UpsertTrack(library.Track{Path: "c", Title: "M", Artist: "A"})
+	upsertOne(t, d, library.Track{Path: "a", Title: "Z", Artist: "B"})
+	upsertOne(t, d, library.Track{Path: "b", Title: "A", Artist: "B"})
+	upsertOne(t, d, library.Track{Path: "c", Title: "M", Artist: "A"})
 
 	tracks, err := d.AllTracks()
 	if err != nil {
@@ -109,14 +183,79 @@ func TestAllTracks_Ordering(t *testing.T) {
 	}
 }
 
+func TestAllTracksInFolder_EmptyMeansAll(t *testing.T) {
+	d := newTestDB(t)
+	upsertOne(t, d, library.Track{Path: "D:/Music/a.mp3"})
+	upsertOne(t, d, library.Track{Path: "E:/Other/b.mp3"})
+
+	tracks, err := d.AllTracksInFolder("")
+	if err != nil {
+		t.Fatalf("AllTracksInFolder: %v", err)
+	}
+	if len(tracks) != 2 {
+		t.Errorf("expected 2 (all), got %d", len(tracks))
+	}
+}
+
+func TestAllTracksInFolder_Filter(t *testing.T) {
+	d := newTestDB(t)
+	upsertOne(t, d, library.Track{Path: "D:/Music/a.mp3"})
+	upsertOne(t, d, library.Track{Path: "D:/Music/sub/b.mp3"})
+	upsertOne(t, d, library.Track{Path: "D:/Music2/c.mp3"})
+	upsertOne(t, d, library.Track{Path: "E:/Other/d.mp3"})
+
+	tracks, err := d.AllTracksInFolder("D:/Music")
+	if err != nil {
+		t.Fatalf("AllTracksInFolder: %v", err)
+	}
+	if len(tracks) != 2 {
+		t.Errorf("expected 2 (a + sub/b), got %d", len(tracks))
+	}
+	for _, tr := range tracks {
+		if tr.Path != "D:/Music/a.mp3" && tr.Path != "D:/Music/sub/b.mp3" {
+			t.Errorf("unexpected track: %s", tr.Path)
+		}
+	}
+}
+
+func TestAllTracksInFolder_PrefixNoMatch(t *testing.T) {
+	d := newTestDB(t)
+	// "D:/Music2" tidak boleh match dengan prefix "D:/Music"
+	upsertOne(t, d, library.Track{Path: "D:/Music2/a.mp3"})
+	upsertOne(t, d, library.Track{Path: "D:/Music/a.mp3"})
+
+	tracks, _ := d.AllTracksInFolder("D:/Music")
+	if len(tracks) != 1 {
+		t.Errorf("expected 1, got %d", len(tracks))
+	}
+	if tracks[0].Path != "D:/Music/a.mp3" {
+		t.Errorf("wrong track: %s", tracks[0].Path)
+	}
+}
+
+func TestAllTracksInFolder_NoMatch(t *testing.T) {
+	d := newTestDB(t)
+	upsertOne(t, d, library.Track{Path: "D:/Music/a.mp3"})
+
+	tracks, err := d.AllTracksInFolder("E:/Nonexistent")
+	if err != nil {
+		t.Fatalf("AllTracksInFolder: %v", err)
+	}
+	if len(tracks) != 0 {
+		t.Errorf("expected 0, got %d", len(tracks))
+	}
+}
+
+// ===== DeleteTracksUnderFolder =====
+
 func TestDeleteTracksUnderFolder_Prefix(t *testing.T) {
 	d := newTestDB(t)
 
-	d.UpsertTrack(library.Track{Path: "D:/Music/a.mp3"})
-	d.UpsertTrack(library.Track{Path: "D:/Music/sub/b.mp3"})
-	d.UpsertTrack(library.Track{Path: "D:/Music/sub/deep/c.mp3"})
-	d.UpsertTrack(library.Track{Path: "D:/Music2/d.mp3"})
-	d.UpsertTrack(library.Track{Path: "D:/Other/e.mp3"})
+	upsertOne(t, d, library.Track{Path: "D:/Music/a.mp3"})
+	upsertOne(t, d, library.Track{Path: "D:/Music/sub/b.mp3"})
+	upsertOne(t, d, library.Track{Path: "D:/Music/sub/deep/c.mp3"})
+	upsertOne(t, d, library.Track{Path: "D:/Music2/d.mp3"})
+	upsertOne(t, d, library.Track{Path: "D:/Other/e.mp3"})
 
 	n, err := d.DeleteTracksUnderFolder("D:/Music")
 	if err != nil {
@@ -134,7 +273,7 @@ func TestDeleteTracksUnderFolder_Prefix(t *testing.T) {
 
 func TestDeleteTracksUnderFolder_NoMatch(t *testing.T) {
 	d := newTestDB(t)
-	d.UpsertTrack(library.Track{Path: "D:/Music/a.mp3"})
+	upsertOne(t, d, library.Track{Path: "D:/Music/a.mp3"})
 
 	n, err := d.DeleteTracksUnderFolder("D:/Nonexistent")
 	if err != nil {
@@ -147,8 +286,8 @@ func TestDeleteTracksUnderFolder_NoMatch(t *testing.T) {
 
 func TestDeleteTracksUnderFolder_ExactMatch(t *testing.T) {
 	d := newTestDB(t)
-	d.UpsertTrack(library.Track{Path: "D:/Music"})
-	d.UpsertTrack(library.Track{Path: "D:/Music/a.mp3"})
+	upsertOne(t, d, library.Track{Path: "D:/Music"})
+	upsertOne(t, d, library.Track{Path: "D:/Music/a.mp3"})
 
 	n, err := d.DeleteTracksUnderFolder("D:/Music")
 	if err != nil {
@@ -156,5 +295,116 @@ func TestDeleteTracksUnderFolder_ExactMatch(t *testing.T) {
 	}
 	if n != 2 {
 		t.Errorf("expected 2 deleted (exact + child), got %d", n)
+	}
+}
+
+// ===== DeleteTracksNotIn (scan reconciliation) =====
+
+func TestDeleteTracksNotIn(t *testing.T) {
+	d := newTestDB(t)
+	upsertOne(t, d, library.Track{Path: "D:/Music/a.mp3"})
+	upsertOne(t, d, library.Track{Path: "D:/Music/b.mp3"})
+	upsertOne(t, d, library.Track{Path: "D:/Music/c.mp3"})
+	upsertOne(t, d, library.Track{Path: "D:/Music/d.mp3"})
+	upsertOne(t, d, library.Track{Path: "D:/Music/e.mp3"})
+
+	foundPaths := map[string]bool{
+		"D:/Music/a.mp3": true,
+		"D:/Music/b.mp3": true,
+	}
+
+	n, err := d.DeleteTracksNotIn("D:/Music", foundPaths)
+	if err != nil {
+		t.Fatalf("DeleteTracksNotIn: %v", err)
+	}
+	if n != 3 {
+		t.Errorf("expected 3 deleted (c, d, e), got %d", n)
+	}
+
+	remaining, _ := d.CountTracks()
+	if remaining != 2 {
+		t.Errorf("expected 2 remaining (a, b), got %d", remaining)
+	}
+}
+
+func TestDeleteTracksNotIn_OnlyAffectedFolder(t *testing.T) {
+	d := newTestDB(t)
+	upsertOne(t, d, library.Track{Path: "D:/Music/a.mp3"})
+	upsertOne(t, d, library.Track{Path: "D:/Music/b.mp3"})
+	upsertOne(t, d, library.Track{Path: "E:/Other/x.mp3"})
+
+	// Scan folder "D:/Music" — hanya "a.mp3" ada di disk.
+	foundPaths := map[string]bool{"D:/Music/a.mp3": true}
+
+	n, err := d.DeleteTracksNotIn("D:/Music", foundPaths)
+	if err != nil {
+		t.Fatalf("DeleteTracksNotIn: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("expected 1 deleted (b), got %d", n)
+	}
+
+	// Track dari folder lain harus tetap ada.
+	remaining, _ := d.CountTracks()
+	if remaining != 2 {
+		t.Errorf("expected 2 remaining (a + x), got %d", remaining)
+	}
+}
+
+func TestDeleteTracksNotIn_NoMatch(t *testing.T) {
+	d := newTestDB(t)
+	upsertOne(t, d, library.Track{Path: "D:/Music/a.mp3"})
+
+	foundPaths := map[string]bool{
+		"D:/Music/a.mp3": true,
+		"D:/Music/b.mp3": true,
+	}
+
+	n, err := d.DeleteTracksNotIn("D:/Music", foundPaths)
+	if err != nil {
+		t.Fatalf("DeleteTracksNotIn: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("expected 0 deleted, got %d", n)
+	}
+}
+
+func TestDeleteTracksNotIn_Empty(t *testing.T) {
+	d := newTestDB(t)
+	upsertOne(t, d, library.Track{Path: "D:/Music/a.mp3"})
+	upsertOne(t, d, library.Track{Path: "D:/Music/b.mp3"})
+
+	// Scan menemukan kosong — semua track di bawah folder dihapus.
+	foundPaths := map[string]bool{}
+
+	n, err := d.DeleteTracksNotIn("D:/Music", foundPaths)
+	if err != nil {
+		t.Fatalf("DeleteTracksNotIn: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("expected 2 deleted, got %d", n)
+	}
+
+	remaining, _ := d.CountTracks()
+	if remaining != 0 {
+		t.Errorf("expected 0 remaining, got %d", remaining)
+	}
+}
+
+func TestDeleteTracksNotIn_Subdirectory(t *testing.T) {
+	d := newTestDB(t)
+	upsertOne(t, d, library.Track{Path: "D:/Music/sub/a.mp3"})
+	upsertOne(t, d, library.Track{Path: "D:/Music/sub/deep/b.mp3"})
+
+	foundPaths := map[string]bool{
+		"D:/Music/sub/a.mp3": true,
+	}
+
+	n, err := d.DeleteTracksNotIn("D:/Music", foundPaths)
+	if err != nil {
+		t.Fatalf("DeleteTracksNotIn: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("expected 1 deleted (deep/b), got %d", n)
 	}
 }
