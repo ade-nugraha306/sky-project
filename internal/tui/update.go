@@ -99,9 +99,9 @@ func scanCmd(cfg *config.Config, database *db.DB) tea.Cmd {
 	}
 }
 
-func loadTracksCmd(database *db.DB, folder string) tea.Cmd {
+func loadTracksCmd(database *db.DB, folder string, sort library.SortMode) tea.Cmd {
 	return func() tea.Msg {
-		tracks, err := database.AllTracksInFolder(folder)
+		tracks, err := database.AllTracksInFolder(folder, sort)
 		return tracksLoadedMsg{tracks: tracks, err: err}
 	}
 }
@@ -134,7 +134,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.status = "scan selesai, memuat lagu..."
-		return m, loadTracksCmd(m.db, m.activeFolder)
+		return m, loadTracksCmd(m.db, m.activeFolder, m.sort)
 
 	case tracksLoadedMsg:
 		if msg.err != nil {
@@ -514,6 +514,13 @@ func (m Model) updateLibrary(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeFolderPicker
 		return m, nil
 
+	case "o":
+		m.sort = m.sort.Next()
+		m.cfg.SortMode = m.sort.Key()
+		m.cfg.Save()
+		m = m.flash(m.sort.Label())
+		return m, loadTracksCmd(m.db, m.activeFolder, m.sort)
+
 	case "enter":
 		selected, ok := m.list.SelectedItem().(trackItem)
 		if !ok {
@@ -670,7 +677,7 @@ func (m Model) updateBrowser(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "esc":
 		m.mode = modeLibrary
-		return m, loadTracksCmd(m.db, m.activeFolder)
+		return m, loadTracksCmd(m.db, m.activeFolder, m.sort)
 
 	case "s":
 		if err := m.cfg.AddFolder(m.browserPath); err != nil {
@@ -721,7 +728,7 @@ func (m Model) updateFolders(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "esc":
 		m.mode = modeLibrary
-		return m, loadTracksCmd(m.db, m.activeFolder)
+		return m, loadTracksCmd(m.db, m.activeFolder, m.sort)
 
 	case "enter":
 		item, ok := m.folderList.SelectedItem().(folderItem)
@@ -733,7 +740,7 @@ func (m Model) updateFolders(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.cfg.Save()
 		m.mode = modeLibrary
 		m.status = "folder aktif: " + item.path
-		return m, loadTracksCmd(m.db, m.activeFolder)
+		return m, loadTracksCmd(m.db, m.activeFolder, m.sort)
 
 	case "d", "delete", "backspace":
 		item, ok := m.folderList.SelectedItem().(folderItem)
@@ -805,7 +812,7 @@ func (m Model) updatePlaylists(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		m.mode = modeLibrary
-		return m, loadTracksCmd(m.db, m.activeFolder)
+		return m, loadTracksCmd(m.db, m.activeFolder, m.sort)
 
 	case "q":
 		m.saveResume()
@@ -939,7 +946,7 @@ func (m Model) updateFolderPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else {
 			m.status = "folder aktif: " + item.path
 		}
-		return m, loadTracksCmd(m.db, m.activeFolder)
+		return m, loadTracksCmd(m.db, m.activeFolder, m.sort)
 	}
 
 	var cmd tea.Cmd
@@ -1278,7 +1285,7 @@ func (m Model) gotoLibrary() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.mode = modeLibrary
-	return m, loadTracksCmd(m.db, m.activeFolder)
+	return m, loadTracksCmd(m.db, m.activeFolder, m.sort)
 }
 
 func (m Model) adjustVolume(delta int) (tea.Model, tea.Cmd) {

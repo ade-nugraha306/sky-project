@@ -50,6 +50,7 @@ var (
 	nowPlayingSourceStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("245"))
 	activeFolderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("33"))
+	sortBadgeStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 )
 
 func (m Model) View() string {
@@ -121,7 +122,7 @@ func (m Model) View() string {
 	default:
 		body = m.viewLibrary()
 		help = helpStyle.Render(
-			"↑/↓ nav • enter play • f folder • L lib • P playlist • B browse • F folders • ? help • q keluar",
+			"↑/↓ nav • enter play • f folder • o sort • L lib • P playlist • B browse • F folders • ? help • q keluar",
 		)
 	}
 
@@ -149,6 +150,7 @@ func (m Model) viewHelp() string {
 	writeHelpRow(&b, "x", "Bersihkan filter")
 	writeHelpRow(&b, "+ / -", "Volume ±5% (di semua mode)")
 	writeHelpRow(&b, "f", "Ganti folder aktif (Library)")
+	writeHelpRow(&b, "o", "Ganti urutan: title → artist → album → date")
 
 	b.WriteString(helpSectionStyle.Render("Pemutaran"))
 	b.WriteString("\n")
@@ -177,6 +179,7 @@ func (m Model) viewHelp() string {
 	writeHelpRow(&b, "r", "Rescan library")
 	writeHelpRow(&b, "t", "Tambah track yang disorot ke playlist")
 	writeHelpRow(&b, "f", "Ganti folder aktif")
+	writeHelpRow(&b, "o", "Ganti urutan: title → artist → album → date")
 
 	b.WriteString(helpSectionStyle.Render("Browser Folder"))
 	b.WriteString("\n")
@@ -244,16 +247,26 @@ func (m Model) viewActiveFolder() string {
 		display = "Semua Folder"
 	}
 
-	// Truncate dari depan kalau path kepanjangan. Tail lebih berguna
-	// daripada head — user tahu awal path-nya sendiri.
+	// Truncate dari depan kalau path kepanjangan.
 	const maxLen = 60
 	if len(display) > maxLen {
 		display = "…" + display[len(display)-maxLen+1:]
 	}
 
-	line := "  📁 " + display
-	line = lipgloss.NewStyle().MaxWidth(m.width).Render(line)
-	return activeFolderStyle.Render(line)
+	left := "  📁 " + display
+	right := "[" + m.sort.Label() + "]"
+
+	leftWidth := lipgloss.Width(left)
+	rightWidth := lipgloss.Width(right)
+
+	padding := m.width - leftWidth - rightWidth
+	if padding < 1 {
+		padding = 1
+	}
+
+	return activeFolderStyle.Render(left) +
+		strings.Repeat(" ", padding) +
+		sortBadgeStyle.Render(right)
 }
 
 func (m Model) viewPlaylistDetail() string {

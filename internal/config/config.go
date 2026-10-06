@@ -17,6 +17,7 @@ type Config struct {
 	Shuffle        bool     `json:"shuffle,omitempty"`
 	LastPlaylistID int64    `json:"last_playlist_id,omitempty"`
 	LastActiveFolder string   `json:"last_active_folder,omitempty"`
+	SortMode         string   `json:"sort_mode,omitempty"`
 }
 
 func configDir() string {
@@ -44,6 +45,7 @@ func Load() (*Config, error) {
 			MusicFolders: []string{},
 			Volume:       100,
 			RepeatMode:   "off",
+			SortMode:     "title",
 		}
 		if err := cfg.Save(); err != nil {
 			return nil, err
@@ -82,6 +84,7 @@ func (c *Config) Save() error {
 		Shuffle:        c.Shuffle,
 		LastPlaylistID: c.LastPlaylistID,
 		LastActiveFolder: c.LastActiveFolder,
+		SortMode:         c.SortMode,
 	}
 	path := DefaultConfigPath()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

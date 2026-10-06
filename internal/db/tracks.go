@@ -39,13 +39,22 @@ func (d *DB) UpsertTracks(tracks []library.Track) error {
 	return tx.Commit()
 }
 
+func sortClause(mode library.SortMode) string {
+	switch mode {
+	case library.SortByArtist:
+		return "artist COLLATE NOCASE, album COLLATE NOCASE, title COLLATE NOCASE, path"
+	case library.SortByAlbum:
+		return "album COLLATE NOCASE, artist COLLATE NOCASE, title COLLATE NOCASE, path"
+	case library.SortByDateDesc:
+		return "added_at DESC, path"
+	default: // SortByTitle
+		return "title COLLATE NOCASE, artist COLLATE NOCASE, path"
+	}
+}
 
-func (d *DB) AllTracks() ([]library.Track, error) {
-	rows, err := d.conn.Query(`
-		SELECT path, title, artist, album, duration_ms
-		FROM tracks
-		ORDER BY artist, album, title
-	`)
+func (d *DB) AllTracks(sort library.SortMode) ([]library.Track, error) {
+	query := "SELECT path, title, artist, album, duration_ms FROM tracks ORDER BY " + sortClause(sort)
+	rows, err := d.conn.Query(query)
 	if err != nil {
 		return nil, err
 	}
@@ -62,18 +71,15 @@ func (d *DB) AllTracks() ([]library.Track, error) {
 	return tracks, rows.Err()
 }
 
-func (d *DB) AllTracksInFolder(folder string) ([]library.Track, error) {
+func (d *DB) AllTracksInFolder(folder string, sort library.SortMode) ([]library.Track, error) {
 	if folder == "" {
-		return d.AllTracks()
+		return d.AllTracks(sort)
 	}
 	folder = filepath.ToSlash(filepath.Clean(folder))
 	prefix := folder + "/"
 
-	rows, err := d.conn.Query(`
-		SELECT path, title, artist, album, duration_ms
-		FROM tracks
-		ORDER BY artist, album, title
-	`)
+	query := "SELECT path, title, artist, album, duration_ms FROM tracks ORDER BY " + sortClause(sort)
+	rows, err := d.conn.Query(query)
 	if err != nil {
 		return nil, err
 	}

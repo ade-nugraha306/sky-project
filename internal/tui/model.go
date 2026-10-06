@@ -105,6 +105,8 @@ type Model struct {
 	width  int
 	height int
 	status string
+
+	sort library.SortMode
 }
 
 
@@ -213,6 +215,7 @@ func NewModel(cfg *config.Config, database *db.DB) Model {
 		textInput:    ti,
 		folderPicker: fp,
 		activeFolder: cfg.LastActiveFolder,
+		sort:         library.ParseSortMode(cfg.SortMode),
 		status:       "memuat...",
 	}
 }

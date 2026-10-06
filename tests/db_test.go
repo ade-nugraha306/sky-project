@@ -28,6 +28,14 @@ func upsertOne(t *testing.T, d *db.DB, track library.Track) {
 	}
 }
 
+func setAddedAt(t *testing.T, d *db.DB, path, ts string) {
+	t.Helper()
+	_, err := d.Conn().Exec(`UPDATE tracks SET added_at = ? WHERE path = ?`, ts, path)
+	if err != nil {
+		t.Fatalf("setAddedAt: %v", err)
+	}
+}
+
 func TestNew_EmptyDB(t *testing.T) {
 	d := newTestDB(t)
 	n, err := d.CountTracks()
@@ -76,7 +84,7 @@ func TestUpsertTrack_UpdatesOnConflict(t *testing.T) {
 	upsertOne(t, d, library.Track{Path: path, Title: "Original", Artist: "Old"})
 	upsertOne(t, d, library.Track{Path: path, Title: "Updated", Artist: "New"})
 
-	tracks, err := d.AllTracks()
+	tracks, err := d.AllTracks(library.SortByTitle)
 	if err != nil {
 		t.Fatalf("AllTracks: %v", err)
 	}
@@ -148,7 +156,7 @@ func TestUpsertTracks_UpdatesOnConflict(t *testing.T) {
 	d.UpsertTracks(first)
 	d.UpsertTracks(second)
 
-	tracks, _ := d.AllTracks()
+	tracks, _ := d.AllTracks(library.SortByTitle)
 	if len(tracks) != 1 {
 		t.Fatalf("expected 1 track, got %d", len(tracks))
 	}
@@ -165,7 +173,7 @@ func TestAllTracks_Ordering(t *testing.T) {
 	upsertOne(t, d, library.Track{Path: "b", Title: "A", Artist: "B"})
 	upsertOne(t, d, library.Track{Path: "c", Title: "M", Artist: "A"})
 
-	tracks, err := d.AllTracks()
+	tracks, err := d.AllTracks(library.SortByArtist)
 	if err != nil {
 		t.Fatalf("AllTracks: %v", err)
 	}
@@ -188,7 +196,8 @@ func TestAllTracksInFolder_EmptyMeansAll(t *testing.T) {
 	upsertOne(t, d, library.Track{Path: "D:/Music/a.mp3"})
 	upsertOne(t, d, library.Track{Path: "E:/Other/b.mp3"})
 
-	tracks, err := d.AllTracksInFolder("")
+	// Folder kosong = semua track.
+	tracks, err := d.AllTracksInFolder("", library.SortByArtist)
 	if err != nil {
 		t.Fatalf("AllTracksInFolder: %v", err)
 	}
@@ -204,7 +213,7 @@ func TestAllTracksInFolder_Filter(t *testing.T) {
 	upsertOne(t, d, library.Track{Path: "D:/Music2/c.mp3"})
 	upsertOne(t, d, library.Track{Path: "E:/Other/d.mp3"})
 
-	tracks, err := d.AllTracksInFolder("D:/Music")
+	tracks, err := d.AllTracksInFolder("D:/Music", library.SortByArtist)
 	if err != nil {
 		t.Fatalf("AllTracksInFolder: %v", err)
 	}
@@ -224,7 +233,7 @@ func TestAllTracksInFolder_PrefixNoMatch(t *testing.T) {
 	upsertOne(t, d, library.Track{Path: "D:/Music2/a.mp3"})
 	upsertOne(t, d, library.Track{Path: "D:/Music/a.mp3"})
 
-	tracks, _ := d.AllTracksInFolder("D:/Music")
+	tracks, _ := d.AllTracksInFolder("D:/Music", library.SortByTitle)
 	if len(tracks) != 1 {
 		t.Errorf("expected 1, got %d", len(tracks))
 	}
@@ -237,7 +246,7 @@ func TestAllTracksInFolder_NoMatch(t *testing.T) {
 	d := newTestDB(t)
 	upsertOne(t, d, library.Track{Path: "D:/Music/a.mp3"})
 
-	tracks, err := d.AllTracksInFolder("E:/Nonexistent")
+	tracks, err := d.AllTracksInFolder("E:/Nonexistent", library.SortByTitle)
 	if err != nil {
 		t.Fatalf("AllTracksInFolder: %v", err)
 	}
@@ -406,5 +415,60 @@ func TestDeleteTracksNotIn_Subdirectory(t *testing.T) {
 	}
 	if n != 1 {
 		t.Errorf("expected 1 deleted (deep/b), got %d", n)
+	}
+}
+
+func TestAllTracks_SortByTitle(t *testing.T) {
+	d := newTestDB(t)
+	upsertOne(t, d, library.Track{Path: "a", Title: "Zebra"})
+	upsertOne(t, d, library.Track{Path: "b", Title: "apple"})
+	upsertOne(t, d, library.Track{Path: "c", Title: "Mango"})
+
+	tracks, _ := d.AllTracks(library.SortByTitle)
+	want := []string{"apple", "Mango", "Zebra"} // NOCASE
+	for i, w := range want {
+		if tracks[i].Title != w {
+			t.Errorf("track[%d]: got %q, want %q", i, tracks[i].Title, w)
+		}
+	}
+}
+
+func TestAllTracks_SortByAlbum(t *testing.T) {
+	d := newTestDB(t)
+	upsertOne(t, d, library.Track{Path: "a", Album: "Zebra"})
+	upsertOne(t, d, library.Track{Path: "b", Album: "apple"})
+	upsertOne(t, d, library.Track{Path: "c", Album: "Mango"})
+
+	tracks, _ := d.AllTracks(library.SortByAlbum)
+	want := []string{"apple", "Mango", "Zebra"}
+	for i, w := range want {
+		if tracks[i].Album != w {
+			t.Errorf("track[%d]: got %q, want %q", i, tracks[i].Album, w)
+		}
+	}
+}
+
+func TestAllTracks_SortByDateDesc(t *testing.T) {
+	d := newTestDB(t)
+	upsertOne(t, d, library.Track{Path: "a", Title: "First"})
+	upsertOne(t, d, library.Track{Path: "b", Title: "Second"})
+	upsertOne(t, d, library.Track{Path: "c", Title: "Third"})
+
+	// Set timestamp eksplisit supaya berbeda (insert cepat bisa
+	// punya added_at identik karena presisi detik).
+	setAddedAt(t, d, "a", "2026-01-01 10:00:00")
+	setAddedAt(t, d, "b", "2026-01-02 10:00:00")
+	setAddedAt(t, d, "c", "2026-01-03 10:00:00")
+
+	tracks, err := d.AllTracks(library.SortByDateDesc)
+	if err != nil {
+		t.Fatalf("AllTracks: %v", err)
+	}
+	// Terbaru di depan: c (2026-01-03), b (2026-01-02), a (2026-01-01)
+	want := []string{"Third", "Second", "First"}
+	for i, w := range want {
+		if tracks[i].Title != w {
+			t.Errorf("track[%d]: got %q, want %q", i, tracks[i].Title, w)
+		}
 	}
 }
