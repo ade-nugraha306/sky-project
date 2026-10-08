@@ -386,3 +386,153 @@ Semua popup punya hotkey yang konsisten:
 - Test manual: `ctrl+c` dari semua popup → force quit tanpa save.
 - Test manual: `q` dari semua popup → save resume + quit.
 - Unit test: semua PASS (tidak ada perubahan DB layer).
+
+## [v0.6b] - 2026-10-08
+
+Rilis beta kelima. Fokus: folder aktif, sort library, reorder track,
+dan penyempurnaan UX shuffle.
+
+### Ditambahkan
+
+#### Folder Aktif
+Library sekarang punya konsep "folder aktif" — mirip working directory
+di shell. Saat diset, library hanya menampilkan track di bawah folder itu.
+
+- Hotkey `f` di Library → popup pilih folder aktif
+- Item pertama `[Semua Folder]` untuk reset (default)
+- Trigger otomatis saat user tambah folder baru via browser (`s`)
+- Trigger manual dari mode Folders (`Enter` di folder)
+- Persist di config (`last_active_folder`)
+- Fallback ke "semua folder" kalau folder yang dihapus sedang aktif
+- Baris `📁 /path/folder` ditampilkan di atas now playing bar
+  (hanya di Library)
+
+#### Sort Library
+- 4 mode sort via hotkey `o` cycle:
+  - `title` — judul A-Z (case-insensitive)
+  - `artist` — artist A-Z
+  - `album` — album A-Z
+  - `date` — yang terbaru ditambahkan di atas
+- Badge `[sort: X]` di kanan folder bar
+- Persist di config (`sort_mode`)
+- Scope: **hanya Library**. Playlist tetap urut `position` (manual).
+
+#### Reorder Track dalam Playlist
+- Hotkey `Shift+K` (naik) / `Shift+J` (turun) di Playlist Detail
+- DB: `SwapPositions(playlistID, i, j)` — tukar posisi dua track
+  - Index-based, O(log N) via index SQLite
+  - Schema `position` diubah `INTEGER` → `REAL` untuk future-proof
+- Cursor mengikuti track yang dipindah
+- Auto-sync `m.queue` setelah reorder — next/prev/auto-next mengikuti
+  urutan baru, playback tidak terputus
+
+#### Shuffle di Playlist + View Sync
+- Hotkey `s` sekarang juga berfungsi di Playlist Detail (sebelumnya
+  hanya di Library)
+- Helper `toggleShuffle()` universal — satu implementasi untuk
+  kedua mode
+- **View = queue saat shuffle on** — list menampilkan urutan acak,
+  bukan urutan source
+- Toggle shuffle off → view kembali ke urutan source
+- Reshuffle di akhir queue (auto-next) → view ikut sync
+- Reorder saat shuffle on — sinkron queue dan DB by **path +
+  occurrence** (bukan index), supaya duplikat di-handle benar
+
+#### UX Rules saat Shuffle On
+- Disable hotkey `o` (sort) di Library
+- Disable hotkey `/` (filter) di Library dan Playlist Detail
+- Disable hotkey `f` (ganti folder) di Library
+- Auto-clear filter yang aktif saat toggle shuffle on
+- Flash `"matikan shuffle dulu untuk X"` saat hotkey disabled ditekan
+
+#### Config
+- `LastActiveFolder` — folder aktif (string, "" = semua)
+- `SortMode` — sort mode (string: title/artist/album/date)
+
+#### Package Baru
+- `library.SortMode` — enum + `Key()`, `Label()`, `Next()`, `ParseSortMode()`
+
+### Diperbaiki
+
+- **`playNext`/`playPrev` tidak wrap saat repeat != off** — `n` di
+  track akhir dengan `repeat: all` sebelumnya no-op, user pikir
+  playback berhenti. Fix:
+  - `repeat one/all` + `n` di akhir → wrap ke track pertama
+  - `repeat off` + `n` di akhir → flash `"akhir queue"`
+  - `p` di awal + `repeat one/all` → wrap ke track terakhir
+  - `p` di awal + `repeat off` → flash `"awal queue"`
+- **Queue dan view tidak sinkron setelah reorder** — reorder di DB,
+  tapi `m.queue` tidak disentuh (snapshot). View menampilkan urutan
+  baru, tapi next/prev masih pakai queue lama. Fix: helper
+  `syncQueueWithPlaylist()` — rebuild queue dari DB setelah reorder,
+  realign index, hanya kalau `playbackSourceID == currentPlaylistID`
+  dan shuffle off.
+- **Shuffle di playlist hilang track baru** — queue adalah snapshot
+  yang diambil saat `Enter`. Kalau user tambah track ke playlist
+  setelah itu, queue tidak tahu. Fix: `toggleShuffle` rebuild queue
+  dari DB dulu sebelum shuffle kalau di mode Playlist Detail.
+- **Reorder saat shuffle on merusak urutan** — index view (queue
+  shuffle) berbeda dari index DB (source). Swap pakai index view
+  → swap track yang salah, lalu reload dari DB → view kembali ke
+  urutan source. Fix: `reorderInShuffle()` — cari posisi di DB
+  berdasarkan path + occurrence, swap di queue dan DB secara
+  sinkron, update view tanpa reload.
+- **Shuffle di playlist tidak berfungsi sama sekali** — case `"s"`
+  tidak ada di `updatePlaylistDetail`. Fix: tambah case + refactor
+  ke `toggleShuffle()` universal.
+- **Resume gagal saat track di folder berbeda dari active folder** —
+  resume logic hanya mencari track di `msg.tracks` (dari active folder).
+  Kalau track terakhir ada di folder lain (misal main dari playlist
+  lintas folder), track tidak ditemukan → `ClearResume()` → saat buka
+  lagi tampil `"tidak ada lagu yang diputar"`. Fix:
+- DB: `TrackByPath(path)` — lookup langsung ke DB dengan normalisasi
+    **kedua sisi** (forward slash + native path). Ini penting di
+    Windows karena `ScanFolder` menyimpan path dengan backslash,
+    sementara config menyimpan dengan forward slash.
+- Resume logic pakai `TrackByPath`, rekonstruksi queue:
+    playlist kalau `LastPlaylistID` valid dan track ada di dalamnya,
+    fallback `[track]` saja kalau tidak.
+- **`scanDoneMsg` tidak reset `resumeChecked`** — setelah rescan,
+  resume tidak dicoba lagi meskipun track baru muncul di DB. Fix:
+  reset `resumeChecked` kalau `currentTrack == nil`.
+
+### Diubah
+
+- `AllTracks(sort)` dan `AllTracksInFolder(folder, sort)` — terima
+  parameter `SortMode`
+- `loadTracksCmd(db, folder, sort)` — signature baru
+- `formatStatus(n)` — kembali ke 1 argumen; folder aktif ditampilkan
+  di baris terpisah
+- `WindowSizeMsg` — library `Height-5` (dari `-4`), karena baris
+  folder baru
+
+### Testing
+
+Total ~85 test. Package `player` dan `tui` belum di-test (butuh mock
+audio device dan setup Bubble Tea yang kompleks).
+- Test baru untuk v0.6b:
+  - `SwapPositions` — jauh, adjacent, same index (no-op),
+    out-of-range, duplicates (5 test)
+  - `TrackPaths` — normal, duplicates, empty (3 test)
+  - `AllTracks_SortByTitle`, `SortByAlbum`, `SortByDateDesc` (3 test)
+  - `AllTracksInFolder` — empty means all, filter, prefix no-match,
+    no match (4 test)
+  - `UpsertTracks` batch + idempotent + empty + update-on-conflict (4 test)
+  - `DeleteTracksNotIn` — basic, only-affected-folder, no-match,
+    empty, subdirectory (5 test)
+- Helper baru di test: `upsertOne`, `setAddedAt`
+
+### Catatan Teknis
+
+- `position` di `playlist_tracks` sekarang `REAL`. DB lama dengan
+  `INTEGER` tetap kompatibel via SQLite type affinity — nilai
+  INTEGER tetap valid di kolom REAL.
+- Reorder saat shuffle on memakai **occurrence counter** untuk
+  handle duplikat: instance ke-N di queue = instance ke-N di DB.
+- Behavior "queue terus jalan sampai habis, lalu reshuffle"
+  konsisten dengan Musicolet/Spotify. Queue adalah snapshot —
+  reorder tidak memutus playback.
+- `TrackByPath` query dengan `WHERE path = ? OR path = ?` untuk
+  handle path yang di-insert oleh versi lama (backslash) dan versi
+  baru (forward slash). Pola ini sama dengan `AllTracksInFolder` dan
+  `DeleteTracksNotIn` — normalisasi path harus dilakukan di kedua sisi.

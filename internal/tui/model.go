@@ -106,6 +106,8 @@ type Model struct {
 	height int
 	status string
 
+	pendingPlaylistCursor int
+
 	sort library.SortMode
 }
 
@@ -216,6 +218,8 @@ func NewModel(cfg *config.Config, database *db.DB) Model {
 		folderPicker: fp,
 		activeFolder: cfg.LastActiveFolder,
 		sort:         library.ParseSortMode(cfg.SortMode),
+		pendingPlaylistCursor: -1,
+
 		status:       "memuat...",
 	}
 }

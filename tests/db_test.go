@@ -472,3 +472,38 @@ func TestAllTracks_SortByDateDesc(t *testing.T) {
 		}
 	}
 }
+
+func TestTrackByPath_ForwardSlash(t *testing.T) {
+	d := newTestDB(t)
+	upsertOne(t, d, library.Track{Path: "D:/Music/song.mp3", Title: "Song"})
+
+	// Query dengan forward slash.
+	track, err := d.TrackByPath("D:/Music/song.mp3")
+	if err != nil {
+		t.Fatalf("TrackByPath: %v", err)
+	}
+	if track.Title != "Song" {
+		t.Errorf("Title: got %q, want Song", track.Title)
+	}
+}
+
+func TestTrackByPath_NormalizesInput(t *testing.T) {
+	d := newTestDB(t)
+	upsertOne(t, d, library.Track{Path: "D:/Music/song.mp3", Title: "Song"})
+
+	// Query dengan trailing slash dan backslash — harus tetap match.
+	_, err := d.TrackByPath("D:/Music/song.mp3/")
+	if err != nil {
+		t.Errorf("TrackByPath with trailing slash: %v", err)
+	}
+}
+
+func TestTrackByPath_NotFound(t *testing.T) {
+	d := newTestDB(t)
+	upsertOne(t, d, library.Track{Path: "D:/Music/song.mp3"})
+
+	_, err := d.TrackByPath("D:/Music/ghost.mp3")
+	if err == nil {
+		t.Error("expected error for non-existent track")
+	}
+}

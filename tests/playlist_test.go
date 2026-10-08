@@ -419,3 +419,162 @@ func TestRemoveTrackFromPlaylistAt_OutOfRange(t *testing.T) {
 		t.Errorf("expected 1 track (unchanged), got %d", len(tracks))
 	}
 }
+
+func TestSwapPositions(t *testing.T) {
+	d := newTestDB(t)
+	pid, _ := d.CreatePlaylist("Test")
+	insertTestTrack(t, d, "a")
+	insertTestTrack(t, d, "b")
+	insertTestTrack(t, d, "c")
+	d.AddTrackToPlaylist(pid, "a")
+	d.AddTrackToPlaylist(pid, "b")
+	d.AddTrackToPlaylist(pid, "c")
+
+	// Swap index 0 dan 2 → urutan jadi c, b, a.
+	if err := d.SwapPositions(pid, 0, 2); err != nil {
+		t.Fatalf("SwapPositions: %v", err)
+	}
+
+	tracks, _ := d.TracksInPlaylist(pid)
+	want := []string{"c", "b", "a"}
+	for i, w := range want {
+		if tracks[i].Path != w {
+			t.Errorf("track[%d]: got %s, want %s", i, tracks[i].Path, w)
+		}
+	}
+}
+
+func TestSwapPositions_Adjacent(t *testing.T) {
+	d := newTestDB(t)
+	pid, _ := d.CreatePlaylist("Test")
+	insertTestTrack(t, d, "a")
+	insertTestTrack(t, d, "b")
+	insertTestTrack(t, d, "c")
+	d.AddTrackToPlaylist(pid, "a")
+	d.AddTrackToPlaylist(pid, "b")
+	d.AddTrackToPlaylist(pid, "c")
+
+	// Swap index 1 dan 2 → urutan jadi a, c, b.
+	if err := d.SwapPositions(pid, 1, 2); err != nil {
+		t.Fatalf("SwapPositions: %v", err)
+	}
+
+	tracks, _ := d.TracksInPlaylist(pid)
+	want := []string{"a", "c", "b"}
+	for i, w := range want {
+		if tracks[i].Path != w {
+			t.Errorf("track[%d]: got %s, want %s", i, tracks[i].Path, w)
+		}
+	}
+}
+
+func TestSwapPositions_SameIndex(t *testing.T) {
+	d := newTestDB(t)
+	pid, _ := d.CreatePlaylist("Test")
+	insertTestTrack(t, d, "a")
+	insertTestTrack(t, d, "b")
+	d.AddTrackToPlaylist(pid, "a")
+	d.AddTrackToPlaylist(pid, "b")
+
+	// Swap index 0 dengan 0 = no-op, tidak error.
+	if err := d.SwapPositions(pid, 0, 0); err != nil {
+		t.Fatalf("SwapPositions same index: %v", err)
+	}
+
+	tracks, _ := d.TracksInPlaylist(pid)
+	if len(tracks) != 2 || tracks[0].Path != "a" || tracks[1].Path != "b" {
+		t.Errorf("order changed after same-index swap: %v", tracks)
+	}
+}
+
+func TestSwapPositions_OutOfRange(t *testing.T) {
+	d := newTestDB(t)
+	pid, _ := d.CreatePlaylist("Test")
+	insertTestTrack(t, d, "a")
+	d.AddTrackToPlaylist(pid, "a")
+
+	// Index 5 tidak ada → error.
+	if err := d.SwapPositions(pid, 0, 5); err == nil {
+		t.Error("expected error for out-of-range index")
+	}
+
+	// Order tidak berubah.
+	tracks, _ := d.TracksInPlaylist(pid)
+	if len(tracks) != 1 || tracks[0].Path != "a" {
+		t.Errorf("order changed after failed swap: %v", tracks)
+	}
+}
+
+func TestSwapPositions_WithDuplicates(t *testing.T) {
+	d := newTestDB(t)
+	pid, _ := d.CreatePlaylist("Test")
+	insertTestTrack(t, d, "song")
+	d.AddTrackToPlaylist(pid, "song")
+	d.AddTrackToPlaylist(pid, "song")
+	d.AddTrackToPlaylist(pid, "song")
+
+	// Semua track sama, tapi swap tetap tidak boleh error.
+	// Setelah swap, urutan track_id tetap (3 instance), hanya posisi tukar.
+	if err := d.SwapPositions(pid, 0, 2); err != nil {
+		t.Fatalf("SwapPositions with duplicates: %v", err)
+	}
+
+	tracks, _ := d.TracksInPlaylist(pid)
+	if len(tracks) != 3 {
+		t.Errorf("expected 3 tracks, got %d", len(tracks))
+	}
+}
+
+func TestTrackPaths(t *testing.T) {
+	d := newTestDB(t)
+	pid, _ := d.CreatePlaylist("Test")
+	insertTestTrack(t, d, "a")
+	insertTestTrack(t, d, "b")
+	insertTestTrack(t, d, "c")
+	d.AddTrackToPlaylist(pid, "a")
+	d.AddTrackToPlaylist(pid, "b")
+	d.AddTrackToPlaylist(pid, "c")
+
+	paths, err := d.TrackPaths(pid)
+	if err != nil {
+		t.Fatalf("TrackPaths: %v", err)
+	}
+	want := []string{"a", "b", "c"}
+	for i, w := range want {
+		if paths[i] != w {
+			t.Errorf("paths[%d]: got %s, want %s", i, paths[i], w)
+		}
+	}
+}
+
+func TestTrackPaths_WithDuplicates(t *testing.T) {
+	d := newTestDB(t)
+	pid, _ := d.CreatePlaylist("Test")
+	insertTestTrack(t, d, "song")
+	d.AddTrackToPlaylist(pid, "song")
+	d.AddTrackToPlaylist(pid, "song")
+	d.AddTrackToPlaylist(pid, "song")
+
+	paths, _ := d.TrackPaths(pid)
+	if len(paths) != 3 {
+		t.Errorf("expected 3 paths, got %d", len(paths))
+	}
+	for i, p := range paths {
+		if p != "song" {
+			t.Errorf("paths[%d]: got %s, want song", i, p)
+		}
+	}
+}
+
+func TestTrackPaths_Empty(t *testing.T) {
+	d := newTestDB(t)
+	pid, _ := d.CreatePlaylist("Empty")
+
+	paths, err := d.TrackPaths(pid)
+	if err != nil {
+		t.Fatalf("TrackPaths: %v", err)
+	}
+	if len(paths) != 0 {
+		t.Errorf("expected 0, got %d", len(paths))
+	}
+}

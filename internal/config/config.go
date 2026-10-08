@@ -34,6 +34,9 @@ func DefaultDBPath() string {
 }
 
 func normalizePath(p string) string {
+	if p == "" {
+		return ""
+	}
 	return filepath.ToSlash(filepath.Clean(p))
 }
 
@@ -83,7 +86,7 @@ func (c *Config) Save() error {
 		RepeatMode:     c.RepeatMode,
 		Shuffle:        c.Shuffle,
 		LastPlaylistID: c.LastPlaylistID,
-		LastActiveFolder: c.LastActiveFolder,
+		LastActiveFolder: normalizePath(c.LastActiveFolder),
 		SortMode:         c.SortMode,
 	}
 	path := DefaultConfigPath()

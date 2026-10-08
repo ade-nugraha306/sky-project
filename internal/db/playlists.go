@@ -164,6 +164,32 @@ func (d *DB) TrackInPlaylist(playlistID int64, trackPath string) (bool, error) {
 	return n > 0, nil
 }
 
+// TrackPaths mengembalikan semua path di playlist, urut posisi.
+// Dipakai untuk lookup index saat ada duplikat — path saja tidak unik,
+// kita perlu tahu instance ke-N dari path yang sama.
+func (d *DB) TrackPaths(playlistID int64) ([]string, error) {
+	rows, err := d.conn.Query(`
+		SELECT t.path FROM playlist_tracks pt
+		JOIN tracks t ON t.id = pt.track_id
+		WHERE pt.playlist_id = ?
+		ORDER BY pt.position
+	`, playlistID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var paths []string
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			return nil, err
+		}
+		paths = append(paths, p)
+	}
+	return paths, rows.Err()
+}
+
 func (d *DB) AddTrackToPlaylist(playlistID int64, trackPath string) error {
 	var trackID int64
 	err := d.conn.QueryRow(
@@ -208,6 +234,54 @@ func (d *DB) RemoveTrackFromPlaylistAt(playlistID int64, index int) error {
 		)
 	`, playlistID, index)
 	return err
+}
+
+func (d *DB) SwapPositions(playlistID int64, i, j int) error {
+	if i == j {
+		return nil
+	}
+
+	type row struct {
+		id  int64
+		pos float64
+	}
+	get := func(idx int) (row, error) {
+		var r row
+		err := d.conn.QueryRow(`
+			SELECT id, position FROM playlist_tracks
+			WHERE playlist_id = ?
+			ORDER BY position
+			LIMIT 1 OFFSET ?
+		`, playlistID, idx).Scan(&r.id, &r.pos)
+		return r, err
+	}
+
+	a, err := get(i)
+	if err != nil {
+		return fmt.Errorf("index %d tidak ditemukan: %w", i, err)
+	}
+	b, err := get(j)
+	if err != nil {
+		return fmt.Errorf("index %d tidak ditemukan: %w", j, err)
+	}
+
+	tx, err := d.conn.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(
+		`UPDATE playlist_tracks SET position = ? WHERE id = ?`, b.pos, a.id,
+	); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(
+		`UPDATE playlist_tracks SET position = ? WHERE id = ?`, a.pos, b.id,
+	); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // isUniqueConstraintError mendeteksi error unique constraint dari

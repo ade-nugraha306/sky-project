@@ -112,7 +112,7 @@ func (m Model) View() string {
 	case modePlaylistDetail:
 		body = m.viewPlaylistDetail()
 		help = helpStyle.Render(
-		"↑/↓ • enter play • n/p • ,/. seek • spasi pause • +/- vol • m repeat • d hapus • / filter • ? help • esc",
+			"↑/↓ • enter play • n/p • spasi pause • Shift+J/K reorder • d hapus • / filter • ? help • esc",
 		)
 	case modeFolderPicker:
 		body = m.folderPicker.View()
@@ -208,6 +208,7 @@ func (m Model) viewHelp() string {
 	writeHelpRow(&b, ". / ]", "Maju 5 detik (dari detail)")
 	writeHelpRow(&b, "spasi", "Pause / resume (dari detail)")
 	writeHelpRow(&b, "d", "Hapus track dari playlist (dari detail)")
+	writeHelpRow(&b, "Shift+J / K", "Pindah track ke bawah / atas (dari detail)")
 
 	content := b.String()
 

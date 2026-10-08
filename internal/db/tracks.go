@@ -1,8 +1,11 @@
 package db
 
 import (
+	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
+	"database/sql"
 
 	"github.com/ade-nugraha306/sky-project/internal/library"
 )
@@ -97,6 +100,28 @@ func (d *DB) AllTracksInFolder(folder string, sort library.SortMode) ([]library.
 		}
 	}
 	return out, rows.Err()
+}
+
+func (d *DB) TrackByPath(path string) (library.Track, error) {
+	// Normalisasi input ke forward slash.
+	forwardPath := filepath.ToSlash(filepath.Clean(path))
+	// Versi native (backslash di Windows, sama dengan forward di Unix).
+	// DB mungkin menyimpan dengan salah satu format tergantung versi
+	// saat track di-insert.
+	nativePath := filepath.FromSlash(forwardPath)
+
+	var t library.Track
+	err := d.conn.QueryRow(`
+		SELECT path, title, artist, album, duration_ms
+		FROM tracks
+		WHERE path = ? OR path = ?
+		LIMIT 1
+	`, forwardPath, nativePath).Scan(&t.Path, &t.Title, &t.Artist, &t.Album, &t.DurationMs)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return library.Track{}, fmt.Errorf("track tidak ada di library: %s", path)
+	}
+	return t, err
 }
 
 func (d *DB) CountTracks() (int, error) {

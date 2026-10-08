@@ -133,6 +133,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = "scan gagal: " + msg.err.Error()
 			return m, nil
 		}
+		// Reset resume check supaya resume dicoba lagi setelah rescan.
+		// Berguna kalau track terakhir di-resume belum ada di DB
+		// (misal folder baru di-scan).
+		if m.currentTrack == nil {
+			m.resumeChecked = false
+		}
 		m.status = "scan selesai, memuat lagu..."
 		return m, loadTracksCmd(m.db, m.activeFolder, m.sort)
 
@@ -154,48 +160,77 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		m.status = formatStatus(len(items))
 		// Resume: hanya sekali per sesi.
+		// Resume: hanya sekali per sesi.
 		if !m.resumeChecked && m.cfg.LastTrackPath != "" && m.currentTrack == nil {
 			m.resumeChecked = true
 
-			tracks := make([]library.Track, len(msg.tracks))
-			copy(tracks, msg.tracks)
+			// Lookup track dari DB, bukan dari msg.tracks — track bisa
+			// berada di folder yang tidak sedang aktif (misal di-resume
+			// dari playlist yang isinya lintas folder).
+			track, err := m.db.TrackByPath(m.cfg.LastTrackPath)
+			if err != nil {
+				// Track benar-benar tidak ada di DB.
+				m.cfg.ClearResume()
+				m.cfg.Save()
+				return m, nil
+			}
 
-			for i, t := range tracks {
-				if filepath.ToSlash(t.Path) != m.cfg.LastTrackPath {
-					continue
-				}
-				m.queue = tracks
-				m.queueIndex = i
+			pos := m.cfg.ResumePosition()
 
-				// Tentukan sumber pemutaran dari config.
-				// Kalau LastPlaylistID > 0, lookup nama dari DB.
-				// Kalau playlist sudah dihapus, fallback ke Library.
-				if m.cfg.LastPlaylistID > 0 {
-					pl, err := m.db.PlaylistByID(m.cfg.LastPlaylistID)
-					if err == nil {
-						m.playbackSourceID = pl.ID
-						m.playbackSourceName = pl.Name
-					} else {
-						// Playlist hilang — fallback Library.
-						m.playbackSourceID = 0
-						m.playbackSourceName = "Library"
+			// Tentukan queue & sumber pemutaran.
+			if m.cfg.LastPlaylistID > 0 {
+				pl, err := m.db.PlaylistByID(m.cfg.LastPlaylistID)
+				if err == nil {
+					// Playlist masih ada — coba load tracks-nya.
+					plTracks, err := m.db.TracksInPlaylist(pl.ID)
+					if err == nil && len(plTracks) > 0 {
+						idx := queue.FindIndex(plTracks, track.Path)
+						if idx >= 0 {
+							// Track ada di playlist — queue = playlist.
+							m.queue = plTracks
+							m.queueIndex = idx
+							m.playbackSourceID = pl.ID
+							m.playbackSourceName = pl.Name
+							if m.shuffle {
+								m.savedQueue = make([]library.Track, len(plTracks))
+								copy(m.savedQueue, plTracks)
+								m.queue = queue.Shuffle(m.queue)
+								m.queueIndex = queue.FindIndex(m.queue, track.Path)
+								if m.queueIndex < 0 {
+									m.queueIndex = 0
+								}
+							}
+						} else {
+							// Track sudah tidak ada di playlist —
+							// queue = [track] saja.
+							m.queue = []library.Track{track}
+							m.queueIndex = 0
+							m.playbackSourceID = 0
+							m.playbackSourceName = "Library"
+						}
 					}
 				} else {
+					// Playlist sudah dihapus — fallback Library.
+					m.queue = []library.Track{track}
+					m.queueIndex = 0
 					m.playbackSourceID = 0
 					m.playbackSourceName = "Library"
 				}
-
-				pos := m.cfg.ResumePosition()
-				track := t
-				return m, func() tea.Msg {
-					err := m.player.LoadAt(track.Path, pos, true)
-					return playResultMsg{track: track, resumeAt: pos, err: err}
-				}
+			} else {
+				// Resume dari Library — queue = [track] saja.
+				// Tidak pakai msg.tracks karena folder aktif mungkin
+				// berbeda dari folder track.
+				m.queue = []library.Track{track}
+				m.queueIndex = 0
+				m.playbackSourceID = 0
+				m.playbackSourceName = "Library"
 			}
 
-			// Track tidak ditemukan — bersihkan resume lama.
-			m.cfg.ClearResume()
-			m.cfg.Save()
+			trackCopy := track
+			return m, func() tea.Msg {
+				err := m.player.LoadAt(trackCopy.Path, pos, true)
+				return playResultMsg{track: trackCopy, resumeAt: pos, err: err}
+			}
 		}
 		return m, nil
 
@@ -289,6 +324,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Refresh highlight untuk track yang sedang diputar.
 		m = m.rebuildPlaylistTrackList()
+
+		// Terapkan cursor target kalau ada (dari reorder).
+		if m.pendingPlaylistCursor >= 0 && m.pendingPlaylistCursor < len(items) {
+			m.playlistTrackList.Select(m.pendingPlaylistCursor)
+		}
+		m.pendingPlaylistCursor = -1
 
 		m.status = fmt.Sprintf("%s • %d lagu", msg.playlistName, len(msg.tracks))
 		return m, nil
@@ -444,6 +485,7 @@ func (m Model) handleTrackEnd() (tea.Model, tea.Cmd) {
 				m.currentTrack = nil
 				m.queue = queue.Shuffle(m.queue)
 				m.queueIndex = 0
+				m = m.syncViewWithQueue()
 				next, cmd := m.playAt(0)
 				return next, tea.Batch(cmd, tickCmd())
 			}
@@ -465,6 +507,20 @@ func (m Model) updateLibrary(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.list, cmd = m.list.Update(msg)
 		return m, cmd
+	}
+
+	if m.shuffle {
+		switch msg.String() {
+		case "o":
+			m = m.flash("matikan shuffle dulu untuk sort")
+			return m, nil
+		case "/":
+			m = m.flash("matikan shuffle dulu untuk filter")
+			return m, nil
+		case "f":
+			m = m.flash("matikan shuffle dulu untuk ganti folder")
+			return m, nil
+		}
 	}
 
 	switch msg.String() {
@@ -611,43 +667,7 @@ func (m Model) updateLibrary(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m = m.flash(m.repeat.String())
 
 	case "s":
-		m.shuffle = !m.shuffle
-		m.cfg.Shuffle = m.shuffle
-		m.cfg.Save()
-
-		if len(m.queue) > 0 && m.currentTrack != nil {
-			if m.shuffle {
-				// Simpan urutan asli, lalu acak.
-				m.savedQueue = make([]library.Track, len(m.queue))
-				copy(m.savedQueue, m.queue)
-				m.queue = queue.Shuffle(m.queue)
-
-				// Cari posisi current track di queue yang baru.
-				idx := queue.FindIndex(m.queue, m.currentTrack.Path)
-				if idx >= 0 {
-					m.queueIndex = idx
-				}
-			} else {
-				// Restore urutan asli.
-				if len(m.savedQueue) == len(m.queue) {
-					m.queue = m.savedQueue
-					idx := queue.FindIndex(m.queue, m.currentTrack.Path)
-					if idx >= 0 {
-						m.queueIndex = idx
-					}
-				}
-				m.savedQueue = nil
-			}
-		} else if !m.shuffle {
-			// Kalau di-off saat belum ada queue, bersihkan saved.
-			m.savedQueue = nil
-		}
-
-		if m.shuffle {
-			m = m.flash("🔀 shuffle: on")
-		} else {
-			m = m.flash("shuffle: off")
-		}
+		return m.toggleShuffle()
 
 	case " ":
 		m.player.TogglePause()
@@ -961,6 +981,14 @@ func (m Model) updatePlaylistDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
+	if m.shuffle {
+		switch msg.String() {
+		case "/":
+			m = m.flash("matikan shuffle dulu untuk filter")
+			return m, nil
+		}
+	}
+
 	switch msg.String() {
 	case "q":
 		m.saveResume()
@@ -1049,11 +1077,46 @@ func (m Model) updatePlaylistDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m = m.flash("▶ playing")
 		}
 
+	case "s":
+		return m.toggleShuffle()
+
 	case "m":
 		m.repeat = (m.repeat + 1) % 3
 		m.cfg.RepeatMode = m.repeat.Key()
 		m.cfg.Save()
 		m = m.flash(m.repeat.String())
+
+case "K": // Shift+K — pindah track ke atas
+		if m.shuffle {
+			return m.reorderInShuffle(-1)
+		}
+		idx := m.playlistTrackList.Index()
+		if idx <= 0 {
+			return m, nil
+		}
+		if err := m.db.SwapPositions(m.currentPlaylistID, idx, idx-1); err != nil {
+			m.status = "gagal pindah: " + err.Error()
+			return m, nil
+		}
+		m.pendingPlaylistCursor = idx - 1
+		m = m.syncQueueWithPlaylist()
+		return m, loadPlaylistDetailCmd(m.db, m.currentPlaylistID, m.currentPlaylistName)
+
+	case "J": // Shift+J — pindah track ke bawah
+		if m.shuffle {
+			return m.reorderInShuffle(+1)
+		}
+		idx := m.playlistTrackList.Index()
+		if idx < 0 || idx >= len(m.playlistTrackList.Items())-1 {
+			return m, nil
+		}
+		if err := m.db.SwapPositions(m.currentPlaylistID, idx, idx+1); err != nil {
+			m.status = "gagal pindah: " + err.Error()
+			return m, nil
+		}
+		m.pendingPlaylistCursor = idx + 1
+		m = m.syncQueueWithPlaylist()
+		return m, loadPlaylistDetailCmd(m.db, m.currentPlaylistID, m.currentPlaylistName)
 
 	case "d", "delete":
 		selected, ok := m.playlistTrackList.SelectedItem().(trackItem)
@@ -1086,6 +1149,211 @@ func (m Model) playlistTracksSnapshot() []library.Track {
 		}
 	}
 	return tracks
+}
+
+func countOccurrence(tracks []library.Track, path string, before int) int {
+	n := 0
+	for i := 0; i < before && i < len(tracks); i++ {
+		if tracks[i].Path == path {
+			n++
+		}
+	}
+	return n
+}
+
+func findDBIndex(dbPaths []string, path string, occurrence int) int {
+	n := 0
+	for i, p := range dbPaths {
+		if p == path {
+			if n == occurrence {
+				return i
+			}
+			n++
+		}
+	}
+	return -1
+}
+
+func (m Model) itemsFromQueue(tracks []library.Track) []list.Item {
+	items := make([]list.Item, len(tracks))
+	for i, t := range tracks {
+		playing := m.currentTrack != nil && t.Path == m.currentTrack.Path
+		items[i] = trackItem{track: t, playing: playing}
+	}
+	return items
+}
+
+// syncViewWithQueue mengganti items di list aktif dengan urutan queue
+// saat ini. Dipakai saat shuffle on, atau reshuffle di akhir queue.
+func (m Model) syncViewWithQueue() Model {
+	items := m.itemsFromQueue(m.queue)
+	switch m.mode {
+	case modeLibrary:
+		m.list.SetItems(items)
+	case modePlaylistDetail:
+		m.playlistTrackList.SetItems(items)
+	}
+	return m
+}
+
+// toggleShuffle membalik mode shuffle dan sync view + queue. Universal —
+// dipanggil dari library maupun playlist detail.
+func (m Model) toggleShuffle() (tea.Model, tea.Cmd) {
+	m.shuffle = !m.shuffle
+	m.cfg.Shuffle = m.shuffle
+	m.cfg.Save()
+
+	if m.shuffle {
+		// Auto-clear filter — view akan jadi queue, filter tidak relevan.
+		switch m.mode {
+		case modeLibrary:
+			if m.list.FilterState() != list.Unfiltered {
+				m.list.ResetFilter()
+			}
+		case modePlaylistDetail:
+			if m.playlistTrackList.FilterState() != list.Unfiltered {
+				m.playlistTrackList.ResetFilter()
+			}
+		}
+
+		if m.mode == modePlaylistDetail && m.currentPlaylistID > 0 {
+			tracks, err := m.db.TracksInPlaylist(m.currentPlaylistID)
+			if err == nil && len(tracks) > 0 {
+				m.queue = tracks
+				m.playbackSourceID = m.currentPlaylistID
+				m.playbackSourceName = m.currentPlaylistName
+
+				if m.currentTrack != nil {
+					if idx := queue.FindIndex(m.queue, m.currentTrack.Path); idx >= 0 {
+						m.queueIndex = idx
+					} else {
+						m.queueIndex = 0
+					}
+				}
+			}
+		}
+
+		if len(m.queue) > 0 && m.currentTrack != nil {
+			m.savedQueue = make([]library.Track, len(m.queue))
+			copy(m.savedQueue, m.queue)
+			m.queue = queue.Shuffle(m.queue)
+
+			if idx := queue.FindIndex(m.queue, m.currentTrack.Path); idx >= 0 {
+				m.queueIndex = idx
+			}
+			m = m.syncViewWithQueue()
+		}
+
+		m = m.flash("🔀 shuffle: on")
+		return m, nil
+	}
+
+	// Shuffle off — restore source order.
+	if len(m.savedQueue) == len(m.queue) {
+		m.queue = m.savedQueue
+		if m.currentTrack != nil {
+			if idx := queue.FindIndex(m.queue, m.currentTrack.Path); idx >= 0 {
+				m.queueIndex = idx
+			}
+		}
+	}
+	m.savedQueue = nil
+	m = m.flash("shuffle: off")
+
+	// Reload view dari source.
+	switch m.mode {
+	case modeLibrary:
+		return m, loadTracksCmd(m.db, m.activeFolder, m.sort)
+	case modePlaylistDetail:
+		return m, loadPlaylistDetailCmd(m.db, m.currentPlaylistID, m.currentPlaylistName)
+	}
+	return m, nil
+}
+
+func (m Model) syncQueueWithPlaylist() Model {
+	if m.playbackSourceID != m.currentPlaylistID || m.currentPlaylistID == 0 {
+		return m
+	}
+	if m.shuffle {
+		return m
+	}
+
+	tracks, err := m.db.TracksInPlaylist(m.currentPlaylistID)
+	if err != nil {
+		return m
+	}
+	m.queue = tracks
+
+	if m.currentTrack != nil {
+		idx := queue.FindIndex(m.queue, m.currentTrack.Path)
+		if idx >= 0 {
+			m.queueIndex = idx
+		} else {
+			// Track yang sedang main sudah tidak ada di playlist
+			// (edge case: dihapus dari playlist). Fallback ke awal.
+			m.queueIndex = 0
+		}
+	}
+	return m
+}
+
+func (m Model) reorderInShuffle(direction int) (tea.Model, tea.Cmd) {
+	fromQIdx := m.playlistTrackList.Index()
+	if fromQIdx < 0 {
+		return m, nil
+	}
+	toQIdx := fromQIdx + direction
+	if toQIdx < 0 || toQIdx >= len(m.queue) {
+		return m, nil
+	}
+
+	moved := m.queue[fromQIdx]
+	other := m.queue[toQIdx]
+
+	// Hitung occurrence di queue — berapa kali path muncul sebelum index.
+	movedOcc := countOccurrence(m.queue, moved.Path, fromQIdx)
+	otherOcc := countOccurrence(m.queue, other.Path, toQIdx)
+
+	dbPaths, err := m.db.TrackPaths(m.currentPlaylistID)
+	if err != nil {
+		m.status = "gagal pindah: " + err.Error()
+		return m, nil
+	}
+
+	dbFromIdx := findDBIndex(dbPaths, moved.Path, movedOcc)
+	dbToIdx := findDBIndex(dbPaths, other.Path, otherOcc)
+	if dbFromIdx < 0 || dbToIdx < 0 {
+		m.status = "gagal pindah: track tidak ditemukan di database"
+		return m, nil
+	}
+
+	// Swap di DB.
+	if err := m.db.SwapPositions(m.currentPlaylistID, dbFromIdx, dbToIdx); err != nil {
+		m.status = "gagal pindah: " + err.Error()
+		return m, nil
+	}
+
+	// Swap di queue memory.
+	m.queue[fromQIdx], m.queue[toQIdx] = m.queue[toQIdx], m.queue[fromQIdx]
+
+	// Realign queueIndex kalau current track affected.
+	if m.currentTrack != nil {
+		if idx := queue.FindIndex(m.queue, m.currentTrack.Path); idx >= 0 {
+			m.queueIndex = idx
+		}
+	}
+
+	// Reload savedQueue dari DB — urutan source baru, sinkron dengan DB.
+	if saved, err := m.db.TracksInPlaylist(m.currentPlaylistID); err == nil {
+		m.savedQueue = saved
+	}
+
+	// Update view tanpa reload — cursor ikut track yang dipindah.
+	items := m.itemsFromQueue(m.queue)
+	m.playlistTrackList.SetItems(items)
+	m.playlistTrackList.Select(toQIdx)
+
+	return m, nil
 }
 
 // clearConfirm mereset semua state popup konfirmasi dan mengembalikan
@@ -1225,16 +1493,21 @@ func (m Model) playAt(index int) (Model, tea.Cmd) {
 func (m Model) playNext() (Model, tea.Cmd) {
 	next := m.queueIndex + 1
 	if next >= len(m.queue) {
-		// Queue sudah di akhir.
+		// Di akhir queue.
 		if m.shuffle && len(m.queue) > 0 {
-			// Shuffle aktif: reshuffle dan main dari awal.
-			// savedQueue tidak disentuh — tetap urutan asli,
-			// jadi toggle off nanti tetap restore dengan benar.
+			// Shuffle on: reshuffle, main dari awal.
 			m.queue = queue.Shuffle(m.queue)
-			m.queueIndex = 0
+			m = m.syncViewWithQueue()
 			return m.playAt(0)
 		}
-		// Shuffle off: tidak ada aksi.
+		if m.repeat != RepeatOff && len(m.queue) > 0 {
+			// Repeat one/all: wrap ke awal.
+			// Repeat one diperlakukan sama seperti all untuk navigasi
+			// manual — user explicitly tekan n, jadi pindah track.
+			return m.playAt(0)
+		}
+		// Repeat off: akhir queue, tidak ada next.
+		m = m.flash("akhir queue")
 		return m, nil
 	}
 	return m.playAt(next)
@@ -1243,6 +1516,13 @@ func (m Model) playNext() (Model, tea.Cmd) {
 func (m Model) playPrev() (Model, tea.Cmd) {
 	prev := m.queueIndex - 1
 	if prev < 0 {
+		// Di awal queue.
+		if m.repeat != RepeatOff && len(m.queue) > 0 {
+			// Repeat one/all: wrap ke akhir.
+			return m.playAt(len(m.queue) - 1)
+		}
+		// Repeat off: tidak ada previous.
+		m = m.flash("awal queue")
 		return m, nil
 	}
 	return m.playAt(prev)
